@@ -8,7 +8,7 @@
 
 ## 📋 Project Overview
 
-This project builds an **automated data engineering pipeline** for global seismic event monitoring, tracking earthquake occurrences, magnitude distributions, focal depths, and geographic fault-line activity. The pipeline ingests data from the USGS (United States Geological Survey) and processes it through a **Bronze → Silver → Gold** Medallion architecture to provide refined operational data for disaster risk analysis and geological research.
+This project builds an **automated data engineering pipeline** for global seismic event monitoring, tracking earthquake occurrences, magnitude distributions, focal depths, and geographic patterns. The pipeline ingests data from the USGS (United States Geological Survey) and processes it through a **Bronze → Silver → Gold** Medallion architecture to provide refined operational data for disaster risk analysis and geological research.
 
 ### Key Features
 
@@ -39,6 +39,32 @@ This project builds an **automated data engineering pipeline** for global seismi
 - **Authentication:** None (public API)
 - **Rate Limits:** Reasonable limits for academic use
 - **Data Quality:** Highly reliable, maintained by U.S. government
+
+### Data Files Generated
+
+The ingestion script generates three distinct files optimized for different purposes:
+
+1. **Full Load** (`usgs_earthquake_full_load.json`)
+   - **Size:** ~200 MB
+   - **Period:** 6 years (2019-2024)
+   - **Magnitude Filter:** ≥2.5
+   - **Purpose:** Historical baseline for Databricks upload
+   - **Event Count:** ~100,000+ events
+
+2. **Sample Load** (`usgs_earthquake_sample.json`)
+   - **Size:** ~15 MB
+   - **Period:** 1 month (December 2024)
+   - **Magnitude Filter:** ≥2.5
+   - **Purpose:** GitHub repository sample
+   - **Event Count:** ~10,000+ events
+
+3. **Incremental Load** (`usgs_earthquake_incremental.json`)
+   - **Size:** ~1 MB
+   - **Period:** Last 7 days (rolling)
+   - **Magnitude Filter:** ≥2.5 (matches full load)
+   - **Purpose:** Daily updates with new events, updates, and deletions
+   - **Event Count:** ~1,000+ events
+   - **Special:** Includes deleted events for soft-delete logic
 
 ### Sample Data Schema
 
@@ -139,8 +165,9 @@ This project builds an **automated data engineering pipeline** for global seismi
 seismo/
 ├── data/
 │   └── samples/              # Sample data files
-│       ├── usgs_earthquake_full_load.json         # Historical baseline (14,048 events)
-│       └── usgs_earthquake_incremental.json       # Daily incremental updates
+│       ├── usgs_earthquake_full_load.json         # 6-year baseline (~200 MB) - Upload to Databricks
+│       ├── usgs_earthquake_sample.json            # 1-month sample (~15 MB) - Commit to GitHub
+│       └── usgs_earthquake_incremental.json       # 7-day rolling updates (~1 MB) - Daily incremental
 ├── src/
 │   └── ingestion/            # Data ingestion scripts
 │       ├── fetch_usgs_data.py                     # Main ingestion script
@@ -179,17 +206,29 @@ seismo/
 
 ### What Happens in Phase 1
 
-The ingestion script performs two operations:
+The ingestion script performs three operations:
 
-1. **Full Load:** Fetches historical earthquake data (2-year baseline, magnitude ≥ 4.5)
-   - Time period: 2023-01-01 to 2025-01-01
-   - Output: `data/samples/usgs_earthquake_full_load.json`
-   - ~14,000+ events, ~15 MB
+1. **Full Load:** Fetches 6-year historical earthquake data (2019-2024)
+   - **Time period:** 2019-01-01 to 2024-12-31
+   - **Minimum magnitude:** 2.5
+   - **Output:** `data/samples/usgs_earthquake_full_load.json`
+   - **Size:** ~200 MB (~100,000+ events)
+   - **Purpose:** Complete historical baseline for Databricks upload
 
-2. **Incremental Load:** Fetches events updated in the last 24 hours
-   - Uses `updatedafter` parameter
-   - Output: `data/samples/usgs_earthquake_incremental.json`
-   - ~600+ events per day, ~0.7 MB
+2. **Sample Load:** Fetches 1-month sample for GitHub
+   - **Time period:** December 2024
+   - **Minimum magnitude:** 2.5
+   - **Output:** `data/samples/usgs_earthquake_sample.json`
+   - **Size:** ~15 MB (~10,000+ events)
+   - **Purpose:** Manageable sample for version control
+
+3. **Incremental Load:** Fetches events updated in the last 7 days
+   - **Uses:** `updatedafter` parameter (rolling 7-day window)
+   - **Minimum magnitude:** 2.5 (matches full load filter)
+   - **Output:** `data/samples/usgs_earthquake_incremental.json`
+   - **Size:** ~1 MB (~1,000+ events)
+   - **Special:** Includes deleted events (`status='deleted'`) for soft-delete logic
+   - **Purpose:** Daily updates to maintain fresh data
 
 ### Sample Data Verification
 
@@ -197,32 +236,58 @@ After running the script, you should see output like:
 
 ```
 ============================================================
-USGS EARTHQUAKE DATA INGESTION
+USGS EARTHQUAKE DATA INGESTION (V2)
 DS-3001 Data Engineering Project - Phase 1
 ============================================================
 
 ============================================================
-FULL LOAD: Fetching historical data
-Period: 2023-01-01 to 2025-01-01
-Minimum Magnitude: 4.5
+STEP 1: Full Load (for Databricks)
+============================================================
+FULL LOAD: Multi-Year Historical Data
+Period: 2019-2024
+Minimum Magnitude: 2.5
+============================================================
+
+Batch 1: 2019-01-01 to 2019-02-01... ✓ 8,234 events
+Batch 2: 2019-02-01 to 2019-03-01... ✓ 7,891 events
+[... processing monthly batches ...]
+
+============================================================
+✓ Full Load Complete!
+  • Total events: 100,000+
+  • File size: ~200 MB
+  • Batches processed: 72
+  • Saved to: data/samples/usgs_earthquake_full_load.json
+============================================================
+
+============================================================
+STEP 2: Sample Load (for GitHub)
+============================================================
+SAMPLE LOAD: For GitHub Repository
+Period: 2024-12-01 to 2025-01-01
+Minimum Magnitude: 2.5
 ============================================================
 
 ✓ Success!
-  • Events fetched: 14,048
-  • File size: 15.12 MB
-  • Saved to: data/samples/usgs_earthquake_full_load.json
+  • Events fetched: 10,000+
+  • File size: ~15 MB
+  • Saved to: data/samples/usgs_earthquake_sample.json
 
 ============================================================
-SAMPLE EVENT DETAILS (First Event)
+STEP 3: Incremental Load (for daily updates)
+============================================================
+INCREMENTAL LOAD: Updates & Deletions
+Updated after: [7 days ago]
+Days back: 7
+Minimum Magnitude: 2.5
+Include deleted: Yes
 ============================================================
 
-Event ID:     us6000pgri
-Magnitude:    5.0 mwr
-Location:     49 km W of Puerto, Chile
-Depth:        35.00 km
-Coordinates:  [-20.1826, -70.6231]
-Time:         2025-01-01 04:13:20 UTC
-Status:       reviewed
+✓ Success!
+  • Events fetched: 1,000+
+  • Deleted events: 5
+  • File size: ~1 MB
+  • Saved to: data/samples/usgs_earthquake_incremental.json
 ```
 
 ---
@@ -249,20 +314,46 @@ The data consists strictly of:
 
 ## 📈 Volume & Frequency Estimates
 
-### Full Load
-- **Volume:** ~150 MB – 250 MB (2-year period, magnitude ≥ 4.5)
+### Full Load (Historical Baseline)
+- **Volume:** ~200 MB
+- **Time Period:** 6 years (2019-2024)
+- **Minimum Magnitude:** 2.5+
 - **Frequency:** One-time historical baseline
-- **Event Count:** ~14,000 seismic events (2023-2025)
+- **Event Count:** ~100,000+ seismic events
+- **Purpose:** Complete multi-year dataset for Databricks upload
 
-### Incremental Load
-- **Volume:** ~2 MB – 5 MB per day
+### Sample Load (GitHub)
+- **Volume:** ~15 MB
+- **Time Period:** 1 month (December 2024)
+- **Minimum Magnitude:** 2.5+
+- **Frequency:** Generated once for repository
+- **Event Count:** ~10,000+ events
+- **Purpose:** Manageable sample for version control and testing
+
+### Incremental Load (Daily Updates)
+- **Volume:** ~1 MB per load
+- **Time Window:** Rolling 7-day window (updated events)
+- **Minimum Magnitude:** 2.5+ (matches full load)
 - **Frequency:** Daily automated polling
-- **Event Count:** ~500-1,000 events/day
+- **Event Count:** ~1,000+ events per load
+- **Special Features:**
+  - Captures newly registered events
+  - Captures magnitude updates (re-evaluated by seismologists)
+  - Includes deleted events (`status='deleted'`) for soft-delete logic
+- **Annual Growth:** ~365 MB per year (daily incremental)
+
+### Key Changes Based on Instructor Feedback
+1. **Unified magnitude filter:** All loads now use 2.5+ (previously incremental used different threshold)
+2. **Extended time period:** Full load expanded from 2 years to 6 years
+3. **Increased volume:** Full load expanded from ~15 MB to ~200 MB
+4. **Longer incremental window:** Changed from 24 hours to 7 days to ensure 1+ MB per file
+5. **Three-file structure:** Added dedicated sample file for GitHub while keeping full load for Databricks
 
 ### Spark & FinOps Fit
-- Highly manageable for PySpark in-memory execution
-- Well within Databricks Free Edition limits (15 GB driver memory)
-- Sufficient scale for multi-year trend analysis
+- **In-Memory Processing:** 200 MB full load is highly manageable for PySpark
+- **Databricks Compatibility:** Well within Databricks Community Edition limits (15 GB driver memory)
+- **Scalability:** Sufficient volume for multi-year trend analysis
+- **Cost-Effective:** Incremental loads minimize daily compute requirements
 
 ---
 
@@ -270,7 +361,7 @@ The data consists strictly of:
 
 ### Key Questions Answered
 
-1. Which geographical fault lines exhibit accelerating seismic activity over time?
+1. Which geographical regions exhibit accelerating seismic activity over time?
 2. What is the ratio of shallow focus (<70 km) to deep focus (>300 km) earthquakes across regions?
 3. How does seismic energy release correlate with magnitude distributions?
 
@@ -287,7 +378,11 @@ The data consists strictly of:
 ### Ingestion Decoupling
 - **Challenge:** Databricks Free Edition blocks external API calls
 - **Solution:** Run Python ingestion script locally or via GitHub Actions
-- **Workflow:** Fetch data → Upload to DBFS Volumes → Process in Databricks
+- **Workflow:** 
+  1. Fetch data using Python script (generates 3 files)
+  2. Upload full load (~200 MB) to DBFS Volumes
+  3. Commit sample (~15 MB) and incremental (~1 MB) to GitHub
+  4. Process in Databricks from DBFS (not API directly)
 
 ### Cluster Optimization
 - Auto-termination set to 20 minutes of inactivity
@@ -298,11 +393,19 @@ The data consists strictly of:
 
 ## 🗓️ Project Timeline
 
-| Phase | Deliverable | Due Date |
-|-------|-------------|----------|
-| **Phase 1** | Proposal + GitHub Repo + Sample Data | Sep 26, 2026 |
-| **Phase 2** | Bronze/Silver/Gold Notebooks | Oct 10, 2026 |
-| **Phase 3** | BI Dashboard + Final Report | Oct 24, 2026 |
+| Phase | Deliverable | Due Date | Status |
+|-------|-------------|----------|--------|
+| **Phase 1** | Proposal + GitHub Repo + Sample Data | Sep 26, 2026 | ✅ Complete |
+| **Phase 2** | Bronze/Silver/Gold Notebooks | Oct 10, 2026 | 🔄 In Progress |
+| **Phase 3** | BI Dashboard + Final Report | Oct 24, 2026 | ⏳ Upcoming |
+
+### Phase 1 Achievements
+- ✅ Three distinct data files generated (200 MB full, 15 MB sample, 1 MB incremental)
+- ✅ 6-year historical baseline (2019-2024)
+- ✅ Unified magnitude filter (2.5+) across all load types
+- ✅ Soft-delete support with `includedeleted=true`
+- ✅ Monthly batching for large dataset retrieval
+- ✅ Comprehensive documentation and proposal
 
 ---
 
@@ -335,4 +438,5 @@ This is a closed academic project. For questions or collaboration, contact the p
 
 ---
 
-**Last Updated:** September 24, 2026
+**Last Updated:** October 3, 2026  
+**Phase:** Phase 1 Complete | Phase 2 In Progress

@@ -22,7 +22,7 @@
 
 **Target Architecture:** Databricks Medallion (Bronze → Silver → Gold) with Decoupled Ingestion
 
-This project builds an automated data engineering pipeline for global seismic event monitoring, tracking earthquake occurrences, magnitude distributions, focal depths, and geographic fault-line activity. The goal is to provide refined operational data for disaster risk analysis and geological research.
+This project builds an automated data engineering pipeline for global seismic event monitoring, tracking earthquake occurrences, magnitude distributions, focal depths, and geographic patterns. The goal is to provide refined operational data for disaster risk analysis and geological research.
 
 ---
 
@@ -33,7 +33,7 @@ This project builds an automated data engineering pipeline for global seismic ev
 **Seismo** automates the collection and processing of global earthquake data to support:
 - Real-time disaster risk assessment
 - Geological research on seismic patterns
-- Fault-line activity monitoring
+- Regional seismic activity monitoring
 - Earthquake magnitude and depth analysis
 
 ### Data Source
@@ -200,8 +200,6 @@ The pipeline implements a **3-tier Medallion Architecture** on Delta Lake:
 - `country`
 - `province`
 - `region`
-- `tectonic_plate`
-- `fault_line_proximity`
 
 #### Dimension Table: `DimMagnitudeClass`
 - `magnitude_class_key` (PK)
@@ -221,7 +219,7 @@ The pipeline implements a **3-tier Medallion Architecture** on Delta Lake:
 - Monthly event frequency by region
 - Average magnitude by depth category
 - Seismic energy release calculations
-- Fault-line activity indexes
+- Regional seismic activity indexes
 
 ---
 
@@ -232,7 +230,7 @@ The pipeline implements a **3-tier Medallion Architecture** on Delta Lake:
 The final Power BI dashboard will answer critical geological and disaster risk questions:
 
 #### Key Questions
-1. Which geographical fault lines exhibit accelerating seismic activity over time?
+1. Which geographical regions exhibit accelerating seismic activity over time?
 2. What is the ratio of shallow-focus (<70 km) to deep-focus (>300 km) earthquakes across regions?
 3. How does seismic energy release correlate with earthquake frequency?
 4. Which regions show increasing magnitude trends that may indicate higher disaster risk?
@@ -273,13 +271,13 @@ The final Power BI dashboard will answer critical geological and disaster risk q
 - **X-Axis:** Depth (km)
 - **Y-Axis:** Magnitude
 - **Bubble Size:** Felt reports count
-- **Color:** Region or tectonic plate
+- **Color:** Region or country
 - **Trend Line:** Regression line showing correlation
 - **Insight:** Identify patterns between depth and impact severity
 
-#### 5. **Top 10 Most Active Fault Lines (Bar Chart)**
+#### 5. **Top 10 Most Active Regions (Bar Chart)**
 - **Visual Type:** Horizontal Bar Chart
-- **Y-Axis:** Fault-line / Region names
+- **Y-Axis:** Region / Country names
 - **X-Axis:** Total event count (past 2 years)
 - **Color:** Average magnitude (gradient: low = green, high = red)
 - **Tooltip:** Latest event date, max magnitude recorded
