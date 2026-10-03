@@ -58,3 +58,6 @@ venv.bak/
 # OS
 Thumbs.db
 desktop.ini
+
+# Large data files (upload to Databricks directly)
+data/samples/usgs_earthquake_full_load.json
