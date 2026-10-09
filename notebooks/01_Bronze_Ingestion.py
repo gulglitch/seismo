@@ -52,7 +52,7 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {DB}")
 spark.sql(f"USE SCHEMA {DB}")
 
 BRONZE = "bronze_seismic_events"
-BRONZE_ERR = "bronze_error_log"
+BRONZE_ERR = "error_log"  # unified error log table (shared across all layers)
 EXEC_LOG = "pipeline_execution_log"
 LAYER = "RAW_TO_BRONZE"
 
@@ -79,25 +79,6 @@ CREATE TABLE IF NOT EXISTS {BRONZE} (
   month               INT
 ) USING DELTA
 PARTITIONED BY (ingestion_type, year, month)
-""")
-
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {BRONZE_ERR} (
-  error_id            BIGINT GENERATED ALWAYS AS IDENTITY,
-  error_timestamp     TIMESTAMP,
-  layer               STRING,
-  notebook_name       STRING,
-  batch_id            STRING,
-  error_type          STRING,
-  error_message       STRING,
-  failed_record       STRING,
-  stack_trace         STRING,
-  resolution_status   STRING,
-  resolved_by         STRING,
-  resolution_notes    STRING,
-  created_timestamp   TIMESTAMP,
-  updated_timestamp   TIMESTAMP
-) USING DELTA
 """)
 
 spark.sql(f"""
