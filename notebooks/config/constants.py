@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Constants & Configuration
 # MAGIC **Purpose:** Centralized configuration values (database names, table names, paths)
-# MAGIC 
+# MAGIC
 # MAGIC **Usage:** `%run ./config/constants` in any notebook
 
 # COMMAND ----------
@@ -129,7 +129,7 @@ NOTEBOOK_BACKFILL = "05_Backfill_Orchestrator"
 
 # Source data location
 SOURCE_BASE_PATH = "/Volumes/workspace/seismo/raw"
-SOURCE_FULL_LOAD = f"{SOURCE_BASE_PATH}/usgs_earthquake_full_load.json"
+SOURCE_FULL_LOAD = f"{SOURCE_BASE_PATH}/usgs_earthquake_full_load_2019_2024.json"
 SOURCE_INCREMENTAL = f"{SOURCE_BASE_PATH}/usgs_earthquake_incremental.json"
 SOURCE_SAMPLE = f"{SOURCE_BASE_PATH}/usgs_earthquake_sample.json"
 

@@ -1,9 +1,13 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # 00_Fetch_USGS_Data — API Data Ingestion to DBFS
-# MAGIC 
+# MAGIC
 # MAGIC **Purpose:** Fetch earthquake data from USGS API and save directly to DBFS
-# MAGIC 
+# MAGIC
 # MAGIC **Parameters:**
 # MAGIC - `output_path`: DBFS path where JSON files will be saved
 # MAGIC - `fetch_type`: FULL_LOAD / SAMPLE / INCREMENTAL_LOAD
@@ -11,13 +15,13 @@
 # MAGIC - `end_year`: End year for full load (e.g., 2024)
 # MAGIC - `days_back`: Days to look back for incremental load (default: 7)
 # MAGIC - `min_magnitude`: Minimum earthquake magnitude (default: 2.5)
-# MAGIC 
+# MAGIC
 # MAGIC **What it does:**
 # MAGIC 1. Connects to USGS FDSN Event Web Service API
 # MAGIC 2. Fetches earthquake data based on selected type
 # MAGIC 3. Saves GeoJSON directly to DBFS
 # MAGIC 4. Validates file creation and size
-# MAGIC 
+# MAGIC
 # MAGIC **Author:** Seismo Team - Phase 2  
 # MAGIC **Last Updated:** October 9, 2026
 
@@ -34,7 +38,7 @@ from datetime import datetime, timedelta
 import time
 
 # Create widgets
-dbutils.widgets.text("output_path", "/Volumes/seismo_data/raw/", "Output Path (DBFS)")
+dbutils.widgets.text("output_path", "/Volumes/workspace/seismo/raw/", "Output Path (DBFS)")
 dbutils.widgets.dropdown("fetch_type", "FULL_LOAD", ["FULL_LOAD", "SAMPLE", "INCREMENTAL_LOAD"], "Fetch Type")
 dbutils.widgets.text("start_year", "2019", "Start Year (Full Load)")
 dbutils.widgets.text("end_year", "2024", "End Year (Full Load)")
@@ -457,7 +461,7 @@ print(f"\n{'='*70}\n")
 # COMMAND ----------
 
 # Read the saved file back and preview with Spark
-df_preview = spark.read.json(full_path)
+df_preview = spark.read.option("multiLine", "true").json(full_path)
 print(f"\n📊 Data Schema Preview:")
 df_preview.printSchema()
 

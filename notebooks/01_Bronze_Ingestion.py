@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # 01_Bronze_Ingestion — Raw GeoJSON → `bronze_seismic_events` (SCD Type 2)
 # MAGIC
@@ -36,7 +40,7 @@ from delta.tables import DeltaTable
 
 spark.conf.set("spark.sql.session.timeZone", "UTC")
 
-dbutils.widgets.text("source_path", "/Volumes/seismo_data/raw/usgs_earthquake_full_load.json")
+dbutils.widgets.text("source_path", "/Volumes/workspace/seismo/raw/usgs_earthquake_full_load_2019_2024.json")
 dbutils.widgets.dropdown("ingestion_type", "FULL_LOAD", ["FULL_LOAD", "INCREMENTAL_LOAD", "BACKFILL"])
 dbutils.widgets.text("batch_id", "")
 dbutils.widgets.text("run_date", "")
@@ -53,6 +57,7 @@ EXEC_LOG = "pipeline_execution_log"
 LAYER = "RAW_TO_BRONZE"
 
 # COMMAND ----------
+
 # MAGIC %md ## Tables (idempotent DDL — safe to run every time)
 
 # COMMAND ----------
@@ -117,6 +122,7 @@ CREATE TABLE IF NOT EXISTS {EXEC_LOG} (
 """)
 
 # COMMAND ----------
+
 # MAGIC %md ## Helpers
 
 # COMMAND ----------
@@ -170,6 +176,7 @@ def log_bronze_failure(ts, batch_id, source_path, e):
     append_with_identity(spark.createDataFrame([row], ERROR_LOG_SCHEMA), BRONZE_ERR)
 
 # COMMAND ----------
+
 # MAGIC %md ## Core: `run_bronze`
 # MAGIC SCD2 in **one MERGE**. For every changed event we put two copies in the MERGE source:
 # MAGIC * copy A, `merge_key = event_id` → matches the current row → *expires it* (`is_current=false`, `valid_to=load_ts`)
@@ -282,7 +289,8 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
             insert = changed.withColumn("merge_key", F.lit(None).cast("string"))
             src = expire.unionByName(insert).drop("had_current")
 
-            tgt_cols = [f.name for f in spark.table(BRONZE).schema.fields]
+            src_cols = set(src.columns)
+            tgt_cols = [f.name for f in spark.table(BRONZE).schema.fields if f.name in src_cols]
             (DeltaTable.forName(spark, BRONZE).alias("t")
              .merge(src.alias("s"), "t.event_id = s.merge_key AND t.is_current = true")
              .whenMatchedUpdate(set={"is_current": "false", "valid_to": "s.valid_from"})
@@ -317,11 +325,15 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
     return m
 
 # COMMAND ----------
+
 # MAGIC %md ## Run (reads the widgets)
 
 # COMMAND ----------
 
+# DBTITLE 1,Run
 source_path    = dbutils.widgets.get("source_path")
+if "seismo_data" in source_path:
+    source_path = SOURCE_FULL_LOAD
 ingestion_type = dbutils.widgets.get("ingestion_type")
 run_date       = dbutils.widgets.get("run_date") or utc_now().strftime("%Y-%m-%d")
 batch_id       = dbutils.widgets.get("batch_id") or make_batch_id(ingestion_type, run_date)
@@ -331,6 +343,7 @@ print(f"batch_id={batch_id} type={ingestion_type} path={source_path} force={forc
 metrics = run_bronze(source_path, batch_id, ingestion_type, force)
 
 # COMMAND ----------
+
 # MAGIC %md ## Proof cells (screenshot these for the submission)
 
 # COMMAND ----------
@@ -352,7 +365,7 @@ WHERE is_current = true GROUP BY event_id HAVING COUNT(*) > 1"""))
 
 # 3) Invariant: no duplicate (event_id, record_hash) among CURRENT rows, and every batch has ONE load_timestamp
 display(spark.sql(f"""
-SELECT batch_id, COUNT(DISTINCT load_timestamp) AS distinct_load_ts, COUNT(*) AS rows
+SELECT batch_id, COUNT(DISTINCT valid_from) AS distinct_load_ts, COUNT(*) AS rows
 FROM {BRONZE} GROUP BY batch_id ORDER BY batch_id"""))
 
 # COMMAND ----------

@@ -148,6 +148,19 @@ def write_exec_log(start, end, batch_id, source_param, status, m, err_msg):
            err_msg, int((end - start).total_seconds()), utc_now())
     append_with_identity(spark.createDataFrame([row], EXECUTION_LOG_SCHEMA), EXEC_LOG)
 
+def log_file_operation(layer, operation_type, file_name, batch_id, records_affected,
+                        status, file_path=None, error_details=None):
+    from pyspark.sql import Row
+    ts = utc_now()
+    log_row = Row(
+        operation_timestamp=ts, layer=layer, operation_type=operation_type,
+        file_name=file_name, file_path=file_path, batch_id=batch_id,
+        records_affected=records_affected, operation_status=status,
+        error_details=error_details, created_timestamp=ts, updated_timestamp=ts
+    )
+    log_df = spark.createDataFrame([log_row], FILE_LOG_SCHEMA)
+    append_with_identity(log_df, "file_operation_log")
+
 # COMMAND ----------
 
 # MAGIC %md ## Core Transformation: `run_silver`
@@ -383,8 +396,15 @@ def run_silver(batch_id, force=False):
 
 # COMMAND ----------
 
-batch_id_param = dbutils.widgets.get("batch_id")
+# DBTITLE 1,Cell 11
+batch_id_param = dbutils.widgets.get("batch_id").strip()
 force_param = dbutils.widgets.get("force") == "true"
+
+if not batch_id_param:
+    batch_id_param = spark.sql(
+        f"SELECT batch_id FROM {BRONZE} ORDER BY valid_from DESC LIMIT 1"
+    ).head()["batch_id"]
+    print(f"batch_id widget was empty; using latest Bronze batch: {batch_id_param}")
 
 run_silver(batch_id_param, force_param)
 
@@ -413,6 +433,6 @@ run_silver(batch_id_param, force_param)
 # MAGIC %sql
 # MAGIC
 # MAGIC -- Proof 3: Preview Processed Silver Data
-# MAGIC SELECT event_id, magnitude, place, latitude, longitude, depth_km, region, load_timestamp
+# MAGIC SELECT event_id, magnitude, place, latitude, longitude, depth_km, region, event_time
 # MAGIC FROM silver_seismic_events 
 # MAGIC LIMIT 10;

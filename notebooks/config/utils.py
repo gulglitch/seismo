@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Utility Functions
 # MAGIC **Purpose:** Reusable helper functions for all notebooks
-# MAGIC 
+# MAGIC
 # MAGIC **Usage:** `%run ./config/utils` in any notebook
 
 # COMMAND ----------
@@ -72,7 +72,7 @@ def log_file_operation(layer, operation_type, file_name, batch_id, records_affec
         updated_timestamp=ts
     )
     
-    log_df = spark.createDataFrame([log_row])
+    log_df = spark.createDataFrame([log_row], FILE_LOG_SCHEMA)
     append_with_identity(log_df, "file_operation_log")
 
 def log_error(layer, error_type, error_message, batch_id=None, notebook_name=None,

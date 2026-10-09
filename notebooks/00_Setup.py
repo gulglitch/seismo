@@ -1,73 +1,41 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # 00_Setup - Database & Table Initialization
-# MAGIC 
+# MAGIC
 # MAGIC **Purpose:** Create all database tables for the Seismo pipeline
-# MAGIC 
+# MAGIC
 # MAGIC **Run this notebook ONCE** before running any other pipeline notebooks.
-# MAGIC 
+# MAGIC
 # MAGIC **What it creates:**
 # MAGIC - Database: `seismo`
 # MAGIC - Staging Layer: `staging_raw_data`
 # MAGIC - Bronze Layer: `bronze_seismic_events`
 # MAGIC - Silver Layer: `silver_seismic_events`, `silver_seismic_events_quarantine`
 # MAGIC - Logging Tables: `pipeline_execution_log`, `file_operation_log`, `error_log`
-# MAGIC 
+# MAGIC
 # MAGIC **Last Updated:** October 9, 2026
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 1: Clean Existing Tables (TEMPORARY - Remove Before Submission)
-# MAGIC 
-# MAGIC ⚠️ **WARNING:** This will delete all existing tables and data!
-# MAGIC 
-# MAGIC **Purpose:** Clean slate for testing with new schema
-# MAGIC 
-# MAGIC **TODO:** Comment out or delete this entire section before final submission
+# MAGIC ## Step 1: Import Configuration
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Drop all existing tables in correct order (handles dependencies)
-# MAGIC DROP TABLE IF EXISTS silver_seismic_events_quarantine;
-# MAGIC DROP TABLE IF EXISTS silver_seismic_events;
-# MAGIC DROP TABLE IF EXISTS bronze_seismic_events;
-# MAGIC DROP TABLE IF EXISTS bronze_error_log;
-# MAGIC DROP TABLE IF EXISTS silver_error_log;
-# MAGIC DROP TABLE IF EXISTS error_log;
-# MAGIC DROP TABLE IF EXISTS pipeline_execution_log;
-# MAGIC DROP TABLE IF EXISTS file_operation_log;
+# MAGIC %run ./config/constants
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Verify all tables are deleted
-# MAGIC SHOW TABLES IN seismo;
-
-# COMMAND ----------
-
-print("🗑️  All existing tables deleted")
-print("⚠️  REMEMBER: Remove this deletion section before submission!")
-print("="*70)
+# MAGIC %run ./config/schemas
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 2: Import Configuration
-
-# COMMAND ----------
-
-%run ./config/constants
-
-# COMMAND ----------
-
-%run ./config/schemas
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Step 3: Configure Spark Session
+# MAGIC ## Step 2: Configure Spark Session
 
 # COMMAND ----------
 
@@ -86,7 +54,7 @@ print(f"   Shuffle partitions: {spark.conf.get('spark.sql.shuffle.partitions')}"
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 4: Create Database
+# MAGIC ## Step 3: Create Database
 
 # COMMAND ----------
 
@@ -98,7 +66,7 @@ print(f"✅ Database '{DATABASE}' created and selected")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 5: Create Staging Layer Tables
+# MAGIC ## Step 4: Create Staging Layer Tables
 
 # COMMAND ----------
 
@@ -131,7 +99,7 @@ print(f"✅ Table '{STAGING_RAW_DATA}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 6: Create Bronze Layer Tables
+# MAGIC ## Step 5: Create Bronze Layer Tables
 
 # COMMAND ----------
 
@@ -167,7 +135,7 @@ print(f"✅ Table '{BRONZE_SEISMIC_EVENTS}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 7: Create Silver Layer Tables
+# MAGIC ## Step 6: Create Silver Layer Tables
 
 # COMMAND ----------
 
@@ -246,7 +214,7 @@ print(f"✅ Table '{SILVER_QUARANTINE}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 8: Create Operational/Logging Tables
+# MAGIC ## Step 7: Create Operational/Logging Tables
 
 # COMMAND ----------
 
@@ -341,7 +309,7 @@ print(f"✅ Table '{ERROR_LOG}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 9: Validation & Summary
+# MAGIC ## Step 8: Validation & Summary
 
 # COMMAND ----------
 
@@ -396,13 +364,13 @@ print("=" * 70)
 
 # MAGIC %md
 # MAGIC ## ✅ Setup Complete!
-# MAGIC 
+# MAGIC
 # MAGIC **Next Steps:**
 # MAGIC 1. Upload your data files to DBFS `/Volumes/workspace/seismo/raw/`
 # MAGIC 2. Run `01_Staging_Ingestion.py` to load data into Staging
 # MAGIC 3. Run `02_Bronze_Ingestion.py` to move data to Bronze
 # MAGIC 4. Run `03_Silver_Transformation.py` to transform to Silver
-# MAGIC 
+# MAGIC
 # MAGIC **Verification:**
 # MAGIC - All 7 tables created ✅
 # MAGIC - All tables are empty (0 rows) ✅
@@ -418,5 +386,3 @@ print("=" * 70)
 print(f"✅ Database: {DATABASE}")
 print(f"✅ Tables created: {len(tables)}")
 print(f"✅ Ready to run pipeline notebooks")
-print("=" * 70)
-print("\n📋 Next: Run 01_Staging_Ingestion.py")
