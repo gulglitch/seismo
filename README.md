@@ -97,7 +97,399 @@ The ingestion script generates three distinct files optimized for different purp
 
 ---
 
-## 🏗️ Architecture
+## 🗄️ **Data Models**
+
+### **Bronze Layer: `bronze_seismic_events`**
+
+**Purpose:** Raw data landing zone with SCD Type 2 (full historical tracking)
+
+**Primary Key:** `(event_id, batch_id)` — Composite key ensures one version per event per batch
+
+**Partitioning:** `PARTITIONED BY (ingestion_type, year, month)`
+
+| Column | Data Type | Nullable | Description |
+|--------|-----------|----------|-------------|
+| `bronze_id` | BIGINT | No | Auto-increment identity (system-generated) |
+| `event_id` | STRING | No | USGS event identifier (business key) |
+| `raw_json` | STRING | No | Complete GeoJSON feature, preserved as-is |
+| `source_file_name` | STRING | Yes | Name of source file processed |
+| `batch_id` | STRING | No | Batch identifier (e.g., FULL_2026-10-09, INCR_2026-10-10) |
+| `ingestion_type` | STRING | No | FULL_LOAD / INCREMENTAL_LOAD / BACKFILL |
+| `is_current` | BOOLEAN | No | TRUE = latest version of this event_id |
+| `valid_from` | TIMESTAMP | No | When this version became active (SCD2 start) |
+| `valid_to` | TIMESTAMP | Yes | When version was superseded (NULL if current) |
+| `record_hash` | STRING | No | MD5(raw_json) for change detection |
+| `created_timestamp` | TIMESTAMP | No | When record was first created |
+| `updated_timestamp` | TIMESTAMP | No | When record was last modified |
+| `year` | INT | Yes | Partition column (from created_timestamp) |
+| `month` | INT | Yes | Partition column (from created_timestamp) |
+
+**Key Features:**
+- ✅ Explicit schema enforcement via `ENVELOPE_SCHEMA` (no `inferSchema`)
+- ✅ SCD Type 2: Maintains complete version history of every event
+- ✅ Idempotent: Re-running same data inserts 0 rows (hash-based deduplication)
+- ✅ Change detection: Only events with different `record_hash` create new versions
+- ✅ Point-in-time queries: Reconstruct data state at any past timestamp
+
+---
+
+### **Silver Layer: `silver_seismic_events`**
+
+**Purpose:** Cleansed, typed, analytics-ready data (SCD Type 1 - latest version only)
+
+**Primary Key:** `event_id` — Unique USGS event identifier
+
+**Partitioning:** `PARTITIONED BY (year, month)` — Based on `event_time` for time-series queries
+
+| Column | Data Type | Nullable | Description |
+|--------|-----------|----------|-------------|
+| `event_id` | STRING | No | USGS event identifier (PK) |
+| `magnitude` | DOUBLE | Yes | Earthquake magnitude (can be NULL) |
+| `magnitude_type` | STRING | Yes | Magnitude scale (mb, ml, mw, md, etc.) |
+| `place` | STRING | Yes | Location description (e.g., "24 km ENE of Beluga, Alaska") |
+| `longitude` | DOUBLE | Yes | Geographic longitude (-180 to 180) |
+| `latitude` | DOUBLE | Yes | Geographic latitude (-90 to 90) |
+| `depth_km` | DOUBLE | Yes | Focal depth in kilometers (negative = above sea level) |
+| `event_time` | TIMESTAMP | Yes | UTC timestamp of earthquake occurrence |
+| `event_updated_time` | TIMESTAMP | Yes | USGS last revision timestamp (drives MERGE logic) |
+| `status` | STRING | Yes | Review status (automatic, reviewed, deleted) |
+| `felt_reports` | INT | Yes | Number of "Did You Feel It?" reports |
+| `cdi` | DOUBLE | Yes | Community Decimal Intensity |
+| `mmi` | DOUBLE | Yes | Modified Mercalli Intensity |
+| `alert_level` | STRING | Yes | PAGER alert level (green, yellow, orange, red) |
+| `significance` | INT | Yes | Event significance score (USGS calculated) |
+| `tsunami_flag` | BOOLEAN | Yes | Whether event is in tsunami-capable region |
+| `network_code` | STRING | Yes | Seismic network code (us, ci, ak, etc.) |
+| `event_type` | STRING | Yes | Event classification (earthquake, explosion, etc.) |
+| `is_active` | BOOLEAN | No | FALSE if status='deleted' (soft delete) |
+| `country` | STRING | Yes | Parsed country from place string |
+| `region` | STRING | Yes | Parsed region/locality from place string |
+| `depth_category` | STRING | Yes | Shallow (<70km) / Intermediate (70-300km) / Deep (>300km) |
+| `magnitude_category` | STRING | Yes | Minor/Light/Moderate/Strong/Major/Great (Richter scale) |
+| `source_batch_id` | STRING | Yes | Reference to Bronze batch_id |
+| `modification_sequence` | INT | Yes | Tracks update count for this event (1, 2, 3...) |
+| `is_most_recent_valid` | BOOLEAN | No | TRUE for latest valid modification |
+| `created_timestamp` | TIMESTAMP | No | When first created in Silver |
+| `updated_timestamp` | TIMESTAMP | No | When last modified in Silver |
+| `year` | INT | Yes | Partition column (from event_time) |
+| `month` | INT | Yes | Partition column (from event_time) |
+
+**Key Features:**
+- ✅ Type enforcement: All epoch timestamps converted via `from_unixtime(ms/1000)`
+- ✅ Data quality: Invalid records quarantined (lat/lon bounds, magnitude limits)
+- ✅ Schema drift detection: Unexpected JSON keys logged to `error_log`
+- ✅ Idempotent MERGE: Updates only if `event_updated_time` > current value
+- ✅ Enrichment: Derived columns (country/region parsing, depth/magnitude categories)
+
+---
+
+### **Quarantine Table: `silver_seismic_events_quarantine`**
+
+**Purpose:** Failed records awaiting investigation/reprocessing
+
+| Column | Data Type | Nullable | Description |
+|--------|-----------|----------|-------------|
+| `quarantine_id` | BIGINT | No | Auto-increment identity |
+| `event_id` | STRING | Yes | USGS event ID (if parseable) |
+| `batch_id` | STRING | Yes | Source batch identifier |
+| `quarantine_reason` | STRING | No | Why record was quarantined |
+| `failed_columns` | STRING | Yes | Which columns failed validation |
+| `raw_json` | STRING | Yes | Original JSON for reprocessing |
+| `error_details` | STRING | Yes | Detailed error information |
+| `quarantine_timestamp` | TIMESTAMP | No | When quarantined |
+| `reprocessing_status` | STRING | No | PENDING / REPROCESSED / DISCARDED |
+| `created_timestamp` | TIMESTAMP | No | Record creation time |
+| `updated_timestamp` | TIMESTAMP | Yes | Record modification time |
+
+---
+
+### **Operational Tables**
+
+#### **`pipeline_execution_log`** — Batch-level execution tracking
+
+| Column | Data Type | Description |
+|--------|-----------|-------------|
+| `execution_id` | BIGINT | Auto-increment identity |
+| `execution_start` | TIMESTAMP | Pipeline start time |
+| `execution_end` | TIMESTAMP | Pipeline completion time |
+| `notebook_name` | STRING | Which notebook executed |
+| `batch_id` | STRING | Batch identifier |
+| `layer` | STRING | RAW_TO_BRONZE / BRONZE_TO_SILVER |
+| `load_type` | STRING | FULL_LOAD / INCREMENTAL_LOAD / BACKFILL |
+| `source_param` | STRING | File/path processed |
+| `status` | STRING | SUCCESS / FAILED / PARTIAL / SKIPPED |
+| `records_processed` | BIGINT | Total records in batch |
+| `records_inserted` | BIGINT | New records added |
+| `records_updated` | BIGINT | Records modified (Bronze: versions expired) |
+| `records_errored` | BIGINT | Records that failed |
+| `error_message` | STRING | High-level error summary |
+| `execution_duration_sec` | INT | Runtime in seconds |
+| `created_timestamp` | TIMESTAMP | Log entry creation time |
+
+#### **`file_operation_log`** — File-level audit trail
+
+| Column | Data Type | Description |
+|--------|-----------|-------------|
+| `log_id` | BIGINT | Auto-increment identity |
+| `operation_timestamp` | TIMESTAMP | When operation occurred |
+| `layer` | STRING | STAGING / BRONZE / SILVER |
+| `operation_type` | STRING | CREATE / READ / UPDATE / DELETE |
+| `file_name` | STRING | File or table name |
+| `file_path` | STRING | Full path to file/table |
+| `batch_id` | STRING | Associated batch identifier |
+| `records_affected` | BIGINT | Number of records impacted |
+| `operation_status` | STRING | SUCCESS / FAILED |
+| `error_details` | STRING | Error message if operation failed |
+| `created_timestamp` | TIMESTAMP | Log entry creation time |
+| `updated_timestamp` | TIMESTAMP | Log entry modification time |
+
+#### **`error_log`** — Unified error tracking
+
+| Column | Data Type | Description |
+|--------|-----------|-------------|
+| `error_id` | BIGINT | Auto-increment identity |
+| `error_timestamp` | TIMESTAMP | When error occurred |
+| `layer` | STRING | STAGING / BRONZE / SILVER |
+| `notebook_name` | STRING | Which notebook encountered error |
+| `batch_id` | STRING | Batch being processed |
+| `error_type` | STRING | VALIDATION / PARSE / CAST_FAILURE / SCHEMA_DRIFT |
+| `error_message` | STRING | Detailed error description |
+| `failed_record` | STRING | Problematic record (truncated) |
+| `stack_trace` | STRING | Full exception trace |
+| `resolution_status` | STRING | PENDING / RESOLVED / IGNORED |
+| `resolved_by` | STRING | Who resolved the error |
+| `resolution_notes` | STRING | How error was fixed |
+| `created_timestamp` | TIMESTAMP | Error logged time |
+| `updated_timestamp` | TIMESTAMP | Resolution time |
+
+---
+
+## 🚀 **Execution Guide**
+
+### **Prerequisites**
+
+1. **Upload data files to DBFS:**
+   ```bash
+   # Upload to Databricks File System
+   /Volumes/workspace/seismo/raw/usgs_earthquake_full_load.json       # ~200 MB
+   /Volumes/workspace/seismo/raw/usgs_earthquake_incremental.json     # ~1 MB
+   /Volumes/workspace/seismo/raw/usgs_earthquake_sample.json          # ~15 MB
+   ```
+
+2. **Run setup notebook once:**
+   ```
+   00_Setup.py
+   ```
+   This creates all tables and configures the database.
+
+---
+
+### **Scenario 1: Standard Full Load (Initial Baseline)**
+
+Load historical 6-year dataset into Bronze and Silver.
+
+#### **Step 1: Bronze Ingestion**
+```python
+# Notebook: 01_Bronze_Ingestion.py
+# Widget Parameters:
+source_path    = "/Volumes/workspace/seismo/raw/usgs_earthquake_full_load.json"
+ingestion_type = "FULL_LOAD"
+batch_id       = "FULL_2026-10-09"        # Or leave blank for auto-generation
+run_date       = "2026-10-09"             # Or leave blank for today
+force          = "false"
+database       = "seismo"
+```
+
+**Expected Results:**
+- Bronze table populated with ~100,000+ events
+- All records have `is_current = TRUE`
+- `pipeline_execution_log` shows SUCCESS
+- `file_operation_log` shows READ and UPDATE operations
+
+#### **Step 2: Silver Transformation**
+```python
+# Notebook: 02_Silver_transformations.py
+# Widget Parameters:
+batch_id  = "FULL_2026-10-09"    # Must match Bronze batch_id
+force     = "false"
+database  = "seismo"
+```
+
+**Expected Results:**
+- Silver table populated with typed, cleansed data
+- All timestamps converted from epoch milliseconds
+- Derived columns populated (country, region, categories)
+- `file_operation_log` shows READ (Bronze) and UPDATE (Silver) operations
+
+---
+
+### **Scenario 2: Standard Incremental Load (Daily Updates)**
+
+Process new events and updates from USGS.
+
+#### **Step 1: Bronze Ingestion**
+```python
+# Notebook: 01_Bronze_Ingestion.py
+# Widget Parameters:
+source_path    = "/Volumes/workspace/seismo/raw/usgs_earthquake_incremental.json"
+ingestion_type = "INCREMENTAL_LOAD"
+batch_id       = "INCR_2026-10-10"        # Or blank for auto: INCR_{today}
+run_date       = "2026-10-10"
+force          = "false"
+database       = "seismo"
+```
+
+**What Happens:**
+- New events → inserted with `is_current = TRUE`
+- Updated events → old version gets `is_current = FALSE`, `valid_to = new_load_timestamp`
+- New version inserted with `is_current = TRUE`, `valid_from = new_load_timestamp`
+- Unchanged events → skipped (hash comparison)
+
+#### **Step 2: Silver Transformation**
+```python
+# Notebook: 02_Silver_transformations.py
+# Widget Parameters:
+batch_id  = "INCR_2026-10-10"
+force     = "false"
+database  = "seismo"
+```
+
+**What Happens:**
+- MERGE updates existing events only if `event_updated_time` is newer
+- New events inserted
+- `modification_sequence` incremented for updated records
+
+---
+
+### **Scenario 3: Backfill (Historical Re-processing)**
+
+Re-run a past batch (e.g., after fixing data quality issues or schema changes).
+
+#### **Bronze Backfill**
+```python
+# Notebook: 01_Bronze_Ingestion.py
+# Widget Parameters:
+source_path    = "/Volumes/workspace/seismo/raw/historical/september_data.json"
+ingestion_type = "BACKFILL"
+batch_id       = "BACKFILL_2026-09-01"
+run_date       = "2026-09-01"
+force          = "false"                  # Use "true" if batch already succeeded
+database       = "seismo"
+```
+
+**Use Cases:**
+- Recovering from data loss
+- Reprocessing after schema evolution
+- Loading archived data from new source
+
+#### **Silver Backfill**
+```python
+# Notebook: 02_Silver_transformations.py
+# Widget Parameters:
+batch_id  = "BACKFILL_2026-09-01"
+force     = "true"                        # Required if batch already processed
+database  = "seismo"
+```
+
+**Note:** Silver can re-process any historical Bronze batch. The MERGE logic prevents old data from overwriting newer updates via `event_updated_time` comparison.
+
+---
+
+### **Scenario 4: Re-run After Failure**
+
+If a pipeline run fails, simply re-run with the same `batch_id`.
+
+```python
+# Notebook: 01_Bronze_Ingestion.py or 02_Silver_transformations.py
+batch_id = "INCR_2026-10-10"    # Same batch_id that failed
+force    = "false"               # Not needed for failed runs
+```
+
+**Behavior:**
+- Failed runs are NOT blocked by idempotency checks
+- Only SUCCESS/PARTIAL runs require `force=true` to re-run
+- Check `pipeline_execution_log` for failure details
+
+---
+
+### **Scenario 5: Force Re-run (Idempotency Override)**
+
+Re-process a batch that already succeeded (e.g., after pipeline logic changes).
+
+```python
+# Any notebook
+batch_id = "FULL_2026-10-09"    # Already succeeded batch
+force    = "true"                # REQUIRED to override idempotency
+```
+
+**Warning:** Use cautiously. Even with `force=true`, data-level idempotency prevents duplicates:
+- Bronze: Unchanged hashes → 0 rows written
+- Silver: Same `event_updated_time` → 0 rows updated
+
+---
+
+### **Verification Queries**
+
+#### **Check Execution Status**
+```sql
+SELECT execution_id, batch_id, layer, load_type, status, 
+       records_processed, records_inserted, records_updated, execution_duration_sec
+FROM pipeline_execution_log
+ORDER BY execution_id DESC
+LIMIT 10;
+```
+
+#### **Verify Bronze SCD2 (Version History)**
+```sql
+-- Show all versions of events that changed
+SELECT event_id, batch_id, is_current, valid_from, valid_to,
+       LEFT(raw_json, 100) AS json_preview
+FROM bronze_seismic_events
+WHERE event_id IN (
+    SELECT event_id FROM bronze_seismic_events 
+    GROUP BY event_id HAVING COUNT(*) > 1
+)
+ORDER BY event_id, valid_from;
+```
+
+#### **Verify Silver Idempotency (No Duplicates)**
+```sql
+-- Must return 0 rows
+SELECT event_id, COUNT(*) AS duplicate_count
+FROM silver_seismic_events
+GROUP BY event_id
+HAVING COUNT(*) > 1;
+```
+
+#### **Check File Operations**
+```sql
+SELECT operation_timestamp, layer, operation_type, file_name, 
+       batch_id, records_affected, operation_status
+FROM file_operation_log
+ORDER BY operation_timestamp DESC
+LIMIT 20;
+```
+
+#### **Review Quarantined Records**
+```sql
+SELECT quarantine_id, event_id, batch_id, quarantine_reason, 
+       failed_columns, reprocessing_status
+FROM silver_seismic_events_quarantine
+ORDER BY quarantine_timestamp DESC;
+```
+
+#### **Check for Errors**
+```sql
+SELECT error_timestamp, layer, error_type, error_message, 
+       resolution_status
+FROM error_log
+WHERE resolution_status = 'PENDING'
+ORDER BY error_timestamp DESC;
+```
+
+---
+
+## 🏗️ **Architecture Diagram**
 
 ### Medallion Data Pipeline
 

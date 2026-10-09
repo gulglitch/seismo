@@ -11,7 +11,15 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./schemas
+# MAGIC %run ./config/schemas
+
+# COMMAND ----------
+
+# MAGIC %run ./config/constants
+
+# COMMAND ----------
+
+# MAGIC %run ./config/utils
 
 # COMMAND ----------
 
@@ -33,7 +41,7 @@ spark.sql(f"USE SCHEMA {DB}")
 BRONZE = "bronze_seismic_events"
 SILVER = "silver_seismic_events"
 QUARANTINE = "silver_seismic_events_quarantine"
-SILVER_ERR = "silver_error_log"
+SILVER_ERR = "error_log"
 EXEC_LOG = "pipeline_execution_log"
 LAYER = "BRONZE_TO_SILVER"
 
@@ -45,33 +53,36 @@ LAYER = "BRONZE_TO_SILVER"
 
 spark.sql(f"""
 CREATE TABLE IF NOT EXISTS {SILVER} (
-  event_id            STRING    COMMENT 'USGS event id (Primary Key)',
-  magnitude           DOUBLE,
-  magnitude_type      STRING,
-  place               STRING,
-  longitude           DOUBLE,
-  latitude            DOUBLE,
-  depth_km            DOUBLE,
-  event_time          TIMESTAMP,
-  updated_time        TIMESTAMP,
-  status              STRING,
-  felt_reports        INT,
-  cdi                 DOUBLE,
-  mmi                 DOUBLE,
-  alert_level         STRING,
-  significance        INT,
-  tsunami_flag        BOOLEAN,
-  network_code        STRING,
-  event_type          STRING,
-  is_active           BOOLEAN   COMMENT 'FALSE if status == deleted',
-  country             STRING,
-  region              STRING,
-  depth_category      STRING,
-  magnitude_category  STRING,
-  load_timestamp      TIMESTAMP COMMENT 'Silver processing timestamp',
-  source_batch_id     STRING,
-  year                INT,
-  month               INT
+  event_id                STRING    COMMENT 'USGS event id (Primary Key)',
+  magnitude               DOUBLE,
+  magnitude_type          STRING,
+  place                   STRING,
+  longitude               DOUBLE,
+  latitude                DOUBLE,
+  depth_km                DOUBLE,
+  event_time              TIMESTAMP,
+  event_updated_time      TIMESTAMP,
+  status                  STRING,
+  felt_reports            INT,
+  cdi                     DOUBLE,
+  mmi                     DOUBLE,
+  alert_level             STRING,
+  significance            INT,
+  tsunami_flag            BOOLEAN,
+  network_code            STRING,
+  event_type              STRING,
+  is_active               BOOLEAN   COMMENT 'FALSE if status == deleted',
+  country                 STRING,
+  region                  STRING,
+  depth_category          STRING,
+  magnitude_category      STRING,
+  source_batch_id         STRING,
+  modification_sequence   INT       COMMENT 'increments each time this event is updated',
+  is_most_recent_valid    BOOLEAN   COMMENT 'TRUE for the latest valid version',
+  created_timestamp       TIMESTAMP COMMENT 'when first created',
+  updated_timestamp       TIMESTAMP COMMENT 'when last modified',
+  year                    INT,
+  month                   INT
 ) USING DELTA
 PARTITIONED BY (year, month)
 """)
@@ -79,12 +90,16 @@ PARTITIONED BY (year, month)
 spark.sql(f"""
 CREATE TABLE IF NOT EXISTS {QUARANTINE} (
   quarantine_id       BIGINT GENERATED ALWAYS AS IDENTITY,
-  load_timestamp      TIMESTAMP,
-  batch_id            STRING,
   event_id            STRING,
+  batch_id            STRING,
+  quarantine_reason   STRING,
   failed_columns      STRING,
-  reason              STRING,
-  raw_json            STRING
+  raw_json            STRING,
+  error_details       STRING,
+  quarantine_timestamp TIMESTAMP,
+  reprocessing_status STRING,
+  created_timestamp   TIMESTAMP,
+  updated_timestamp   TIMESTAMP
 ) USING DELTA
 """)
 
@@ -92,10 +107,18 @@ spark.sql(f"""
 CREATE TABLE IF NOT EXISTS {SILVER_ERR} (
   error_id            BIGINT GENERATED ALWAYS AS IDENTITY,
   error_timestamp     TIMESTAMP,
+  layer               STRING,
+  notebook_name       STRING,
   batch_id            STRING,
   error_type          STRING,
   error_message       STRING,
-  resolution_action   STRING
+  failed_record       STRING,
+  stack_trace         STRING,
+  resolution_status   STRING,
+  resolved_by         STRING,
+  resolution_notes    STRING,
+  created_timestamp   TIMESTAMP,
+  updated_timestamp   TIMESTAMP
 ) USING DELTA
 """)
 
@@ -120,9 +143,9 @@ def already_succeeded(batch_id):
             .limit(1).count() > 0)
 
 def write_exec_log(start, end, batch_id, source_param, status, m, err_msg):
-    row = (start, end, batch_id, LAYER, "BATCH", source_param, status,
+    row = (start, end, "02_Silver_transformations", batch_id, LAYER, "BATCH", source_param, status,
            int(m["total"]), int(m["inserted"]), int(m["updated"]), int(m["errored"]),
-           err_msg, int((end - start).total_seconds()))
+           err_msg, int((end - start).total_seconds()), utc_now())
     append_with_identity(spark.createDataFrame([row], EXECUTION_LOG_SCHEMA), EXEC_LOG)
 
 # COMMAND ----------
@@ -151,6 +174,17 @@ def run_silver(batch_id, force=False):
         bronze_df = spark.table(BRONZE).filter(F.col("batch_id") == batch_id)
         m["total"] = bronze_df.count()
 
+        # Log Bronze read operation
+        log_file_operation(
+            layer=LAYER_SILVER,
+            operation_type=OP_READ,
+            file_name=BRONZE,
+            batch_id=batch_id,
+            records_affected=m["total"],
+            status=STATUS_SUCCESS,
+            file_path=f"table://{BRONZE}"
+        )
+
         if m["total"] == 0:
             write_exec_log(start, utc_now(), batch_id, batch_id, "SUCCESS", m, "No records found in Bronze for batch_id")
             print(f"SUCCESS: 0 records found in Bronze for batch_id={batch_id}")
@@ -164,15 +198,10 @@ def run_silver(batch_id, force=False):
         unexpected_keys = [r["k"] for r in top_keys if r["k"] not in EXPECTED_TOP_KEYS]
         if unexpected_keys:
             for key in unexpected_keys:
-                err_row = (load_ts, batch_id, "SCHEMA_DRIFT", f"Unexpected top-level key found: {key}", "IGNORED_NOT_IN_CONTRACT")
-                append_with_identity(spark.createDataFrame([err_row],
-                    StructType([
-                        StructField("error_timestamp", TimestampType(), False),
-                        StructField("batch_id", StringType(), True),
-                        StructField("error_type", StringType(), False),
-                        StructField("error_message", StringType(), True),
-                        StructField("resolution_action", StringType(), True)
-                    ])), SILVER_ERR)
+                err_row = (load_ts, LAYER, "02_Silver_transformations", batch_id, "SCHEMA_DRIFT", 
+                          f"Unexpected top-level key found: {key}", None, None, "UNRESOLVED", None, None, 
+                          load_ts, None)
+                append_with_identity(spark.createDataFrame([err_row], ERROR_LOG_SCHEMA), SILVER_ERR)
 
         # 4) Extract and Cast fields
         extracted = parsed.select(
@@ -186,7 +215,7 @@ def run_silver(batch_id, force=False):
             F.col("parsed.geometry.coordinates").getItem(1).cast("double").alias("latitude"),
             F.col("parsed.geometry.coordinates").getItem(2).cast("double").alias("depth_km"),
             (F.col("parsed.properties.time") / 1000).cast("timestamp").alias("event_time"),
-            (F.col("parsed.properties.updated") / 1000).cast("timestamp").alias("updated_time"),
+            (F.col("parsed.properties.updated") / 1000).cast("timestamp").alias("event_updated_time"),
             F.col("parsed.properties.status").alias("status"),
             F.col("parsed.properties.felt").cast("int").alias("felt_reports"),
             F.col("parsed.properties.cdi").cast("double").alias("cdi"),
@@ -202,7 +231,7 @@ def run_silver(batch_id, force=False):
         invalid_cond = (
             F.col("event_id").isNull() |
             F.col("event_time").isNull() |
-            F.col("updated_time").isNull() |
+            F.col("event_updated_time").isNull() |
             (F.col("latitude") < -90) | (F.col("latitude") > 90) |
             (F.col("longitude") < -180) | (F.col("longitude") > 180) |
             (F.col("magnitude") > 10)
@@ -214,14 +243,29 @@ def run_silver(batch_id, force=False):
         m["errored"] = bad_rows.count()
         if m["errored"] > 0:
             quarantine_records = bad_rows.select(
-                F.lit(load_ts).alias("load_timestamp"),
-                F.col("batch_id"),
                 F.col("event_id"),
+                F.col("batch_id"),
+                F.lit("Validation bounds or required null check failed").alias("quarantine_reason"),
                 F.lit("event_id/time/lat/lon/mag").alias("failed_columns"),
-                F.lit("Validation bounds or required null check failed").alias("reason"),
-                F.col("raw_json")
+                F.col("raw_json"),
+                F.lit("See validation conditions in transformation logic").alias("error_details"),
+                F.lit(load_ts).alias("quarantine_timestamp"),
+                F.lit("PENDING").alias("reprocessing_status"),
+                F.lit(load_ts).alias("created_timestamp"),
+                F.lit(None).cast("timestamp").alias("updated_timestamp"),
             )
             append_with_identity(quarantine_records, QUARANTINE)
+            
+            # Log quarantine operation
+            log_file_operation(
+                layer=LAYER_SILVER,
+                operation_type=OP_CREATE,
+                file_name=QUARANTINE,
+                batch_id=batch_id,
+                records_affected=m["errored"],
+                status=STATUS_SUCCESS,
+                file_path=f"table://{QUARANTINE}"
+            )
 
         # 6) Enrich Valid Records
         enriched = good_rows.withColumn(
@@ -244,17 +288,23 @@ def run_silver(batch_id, force=False):
              .when(F.col("magnitude") < 7.0, "Major")
              .otherwise("Great")
         ).withColumn(
-            "load_timestamp", F.lit(load_ts)
-        ).withColumn(
             "source_batch_id", F.col("batch_id")
+        ).withColumn(
+            "modification_sequence", F.lit(1)
+        ).withColumn(
+            "is_most_recent_valid", F.lit(True)
+        ).withColumn(
+            "created_timestamp", F.lit(load_ts)
+        ).withColumn(
+            "updated_timestamp", F.lit(load_ts)
         ).withColumn(
             "year", F.year("event_time")
         ).withColumn(
             "month", F.month("event_time")
         ).drop("raw_json", "batch_id")
 
-        # 7) Source De-duplication per event_id (keep highest updated_time)
-        w = Window.partitionBy("event_id").orderBy(F.col("updated_time").desc())
+        # 7) Source De-duplication per event_id (keep highest event_updated_time)
+        w = Window.partitionBy("event_id").orderBy(F.col("event_updated_time").desc())
         deduped = enriched.withColumn("_rn", F.row_number().over(w)).filter("_rn = 1").drop("_rn")
 
         # 8) Idempotent MERGE INTO
@@ -265,11 +315,54 @@ def run_silver(batch_id, force=False):
             # Execute Upsert
             (target_table.alias("t")
              .merge(deduped.alias("s"), "t.event_id = s.event_id")
-             .whenMatchedUpdateAll(condition="s.updated_time > t.updated_time")
+             .whenMatchedUpdate(
+                 condition="s.event_updated_time > t.event_updated_time",
+                 set={
+                     "magnitude": "s.magnitude",
+                     "magnitude_type": "s.magnitude_type",
+                     "place": "s.place",
+                     "longitude": "s.longitude",
+                     "latitude": "s.latitude",
+                     "depth_km": "s.depth_km",
+                     "event_time": "s.event_time",
+                     "event_updated_time": "s.event_updated_time",
+                     "status": "s.status",
+                     "felt_reports": "s.felt_reports",
+                     "cdi": "s.cdi",
+                     "mmi": "s.mmi",
+                     "alert_level": "s.alert_level",
+                     "significance": "s.significance",
+                     "tsunami_flag": "s.tsunami_flag",
+                     "network_code": "s.network_code",
+                     "event_type": "s.event_type",
+                     "is_active": "s.is_active",
+                     "country": "s.country",
+                     "region": "s.region",
+                     "depth_category": "s.depth_category",
+                     "magnitude_category": "s.magnitude_category",
+                     "source_batch_id": "s.source_batch_id",
+                     "modification_sequence": "t.modification_sequence + 1",
+                     "is_most_recent_valid": "true",
+                     "updated_timestamp": "s.updated_timestamp",
+                     "year": "s.year",
+                     "month": "s.month"
+                 }
+             )
              .whenNotMatchedInsertAll()
              .execute())
 
             m["inserted"] = staged_count
+            
+            # Log successful Silver write operation
+            log_file_operation(
+                layer=LAYER_SILVER,
+                operation_type=OP_UPDATE,
+                file_name=SILVER,
+                batch_id=batch_id,
+                records_affected=staged_count,
+                status=STATUS_SUCCESS,
+                file_path=f"table://{SILVER}"
+            )
 
         if m["errored"] > 0:
             status = "PARTIAL"

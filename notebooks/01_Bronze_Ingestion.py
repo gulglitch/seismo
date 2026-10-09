@@ -17,7 +17,15 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./schemas
+# MAGIC %run ./config/schemas
+
+# COMMAND ----------
+
+# MAGIC %run ./config/constants
+
+# COMMAND ----------
+
+# MAGIC %run ./config/utils
 
 # COMMAND ----------
 
@@ -51,32 +59,39 @@ LAYER = "RAW_TO_BRONZE"
 
 spark.sql(f"""
 CREATE TABLE IF NOT EXISTS {BRONZE} (
-  event_id        STRING     COMMENT 'USGS event id (business key)',
-  raw_json        STRING     COMMENT 'complete GeoJSON feature, unmodified',
-  load_timestamp  TIMESTAMP  COMMENT 'batch-level ingest time (same for whole batch)',
-  batch_id        STRING,
-  source_file     STRING,
-  ingestion_type  STRING,
-  is_current      BOOLEAN    COMMENT 'TRUE = latest version of this event_id',
-  valid_from      TIMESTAMP  COMMENT '= load_timestamp of the batch that created this version',
-  valid_to        TIMESTAMP  COMMENT 'load_timestamp of the batch that superseded it; NULL if current',
-  record_hash     STRING     COMMENT 'md5(raw_json) — change detection',
-  year            INT,
-  month           INT
+  event_id            STRING     COMMENT 'USGS event id (business key)',
+  raw_json            STRING     COMMENT 'complete GeoJSON feature, unmodified',
+  source_file_name    STRING,
+  batch_id            STRING,
+  ingestion_type      STRING,
+  is_current          BOOLEAN    COMMENT 'TRUE = latest version of this event_id',
+  valid_from          TIMESTAMP  COMMENT 'batch-level ingest time of the version that created this row',
+  valid_to            TIMESTAMP  COMMENT 'valid_from of the batch that superseded it; NULL if current',
+  record_hash         STRING     COMMENT 'md5(raw_json) — change detection',
+  created_timestamp   TIMESTAMP  COMMENT 'when this row was first created',
+  updated_timestamp   TIMESTAMP  COMMENT 'when this row was last modified',
+  year                INT,
+  month               INT
 ) USING DELTA
 PARTITIONED BY (ingestion_type, year, month)
 """)
 
 spark.sql(f"""
 CREATE TABLE IF NOT EXISTS {BRONZE_ERR} (
-  error_id        BIGINT GENERATED ALWAYS AS IDENTITY,
-  error_timestamp TIMESTAMP,
-  batch_id        STRING,
-  source_file     STRING,
-  error_type      STRING,
-  error_message   STRING,
-  failed_record   STRING,
-  stack_trace     STRING
+  error_id            BIGINT GENERATED ALWAYS AS IDENTITY,
+  error_timestamp     TIMESTAMP,
+  layer               STRING,
+  notebook_name       STRING,
+  batch_id            STRING,
+  error_type          STRING,
+  error_message       STRING,
+  failed_record       STRING,
+  stack_trace         STRING,
+  resolution_status   STRING,
+  resolved_by         STRING,
+  resolution_notes    STRING,
+  created_timestamp   TIMESTAMP,
+  updated_timestamp   TIMESTAMP
 ) USING DELTA
 """)
 
@@ -85,6 +100,7 @@ CREATE TABLE IF NOT EXISTS {EXEC_LOG} (
   execution_id           BIGINT GENERATED ALWAYS AS IDENTITY,
   execution_start        TIMESTAMP,
   execution_end          TIMESTAMP,
+  notebook_name          STRING,
   batch_id               STRING,
   layer                  STRING,
   load_type              STRING,
@@ -95,7 +111,8 @@ CREATE TABLE IF NOT EXISTS {EXEC_LOG} (
   records_updated        BIGINT,
   records_errored        BIGINT,
   error_message          STRING,
-  execution_duration_sec INT
+  execution_duration_sec INT,
+  created_timestamp      TIMESTAMP
 ) USING DELTA
 """)
 
@@ -132,9 +149,9 @@ def already_succeeded(batch_id):
 
 
 def write_exec_log(start, end, batch_id, ingestion_type, source_param, status, m, err_msg):
-    row = (start, end, batch_id, LAYER, ingestion_type, source_param, status,
+    row = (start, end, "01_Bronze_Ingestion", batch_id, LAYER, ingestion_type, source_param, status,
            int(m["total"]), int(m["inserted"]), int(m["updated"]), int(m["errored"]),
-           err_msg, int((end - start).total_seconds()))
+           err_msg, int((end - start).total_seconds()), utc_now())
     append_with_identity(spark.createDataFrame([row], EXECUTION_LOG_SCHEMA), EXEC_LOG)
 
 
@@ -148,8 +165,9 @@ def classify_error(e):
 
 
 def log_bronze_failure(ts, batch_id, source_path, e):
-    row = (ts, batch_id, source_path, classify_error(e), str(e)[:2000], None, traceback.format_exc()[:8000])
-    append_with_identity(spark.createDataFrame([row], BRONZE_ERROR_SCHEMA), BRONZE_ERR)
+    row = (ts, LAYER, "01_Bronze_Ingestion", batch_id, classify_error(e), str(e)[:2000], None, 
+           traceback.format_exc()[:8000], "UNRESOLVED", None, None, utc_now(), None)
+    append_with_identity(spark.createDataFrame([row], ERROR_LOG_SCHEMA), BRONZE_ERR)
 
 # COMMAND ----------
 # MAGIC %md ## Core: `run_bronze`
@@ -180,10 +198,21 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
                   .option("multiline", "true")
                   .option("mode", "FAILFAST")
                   .json(source_path))
+        
+        # Log successful file read
+        log_file_operation(
+            layer=LAYER_BRONZE,
+            operation_type=OP_READ,
+            file_name=source_path.split("/")[-1],
+            batch_id=batch_id,
+            records_affected=0,  # Will be updated after processing
+            status=STATUS_SUCCESS,
+            file_path=source_path
+        )
 
-        # 2) One row per feature; raw_json = untouched feature text; source_file works for file OR folder paths
+        # 2) One row per feature; raw_json = untouched feature text; source_file_name works for file OR folder paths
         feats = raw_df.select(
-            F.col("_metadata.file_name").alias("source_file"),
+            F.col("_metadata.file_name").alias("source_file_name"),
             F.explode_outer("features").alias("raw_json"),
         )
         feats = (feats
@@ -197,12 +226,18 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
             append_with_identity(
                 bad.select(
                     F.lit(load_ts).alias("error_timestamp"),
+                    F.lit(LAYER).alias("layer"),
+                    F.lit("01_Bronze_Ingestion").alias("notebook_name"),
                     F.lit(batch_id).alias("batch_id"),
-                    F.col("source_file"),
                     F.lit("MISSING_KEY").alias("error_type"),
                     F.lit("Feature has no id").alias("error_message"),
                     F.substring("raw_json", 1, 4000).alias("failed_record"),
                     F.lit(None).cast("string").alias("stack_trace"),
+                    F.lit("UNRESOLVED").alias("resolution_status"),
+                    F.lit(None).cast("string").alias("resolved_by"),
+                    F.lit(None).cast("string").alias("resolution_notes"),
+                    F.lit(load_ts).alias("created_timestamp"),
+                    F.lit(None).cast("timestamp").alias("updated_timestamp"),
                 ), BRONZE_ERR)
 
         # 4) De-dupe inside the batch (MERGE needs ≤1 source row per key): keep the most recently updated
@@ -213,15 +248,15 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
 
         # 5) Add Bronze metadata. Every literal uses the single load_ts → identical across the batch.
         staged = good.select(
-            "event_id", "raw_json",
-            F.lit(load_ts).alias("load_timestamp"),
+            "event_id", "raw_json", "source_file_name",
             F.lit(batch_id).alias("batch_id"),
-            "source_file",
             F.lit(ingestion_type).alias("ingestion_type"),
             F.lit(True).alias("is_current"),
             F.lit(load_ts).alias("valid_from"),
             F.lit(None).cast("timestamp").alias("valid_to"),
             F.md5("raw_json").alias("record_hash"),
+            F.lit(load_ts).alias("created_timestamp"),
+            F.lit(load_ts).alias("updated_timestamp"),
             F.lit(load_ts.year).alias("year"),
             F.lit(load_ts.month).alias("month"),
         )
@@ -254,6 +289,17 @@ def run_bronze(source_path, batch_id, ingestion_type, force=False):
              .whenNotMatchedInsert(condition="s.merge_key IS NULL",
                                    values={c: f"s.{c}" for c in tgt_cols})
              .execute())
+            
+            # Log successful file operation
+            log_file_operation(
+                layer=LAYER_BRONZE,
+                operation_type=OP_UPDATE,
+                file_name=BRONZE,
+                batch_id=batch_id,
+                records_affected=n_changed,
+                status=STATUS_SUCCESS,
+                file_path=source_path
+            )
 
         if m["errored"] > 0:
             status = "PARTIAL"
