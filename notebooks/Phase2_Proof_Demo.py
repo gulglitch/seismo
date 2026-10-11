@@ -633,42 +633,4 @@ print("=" * 80)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ---
-# MAGIC ## 📋 Recording Notes for Video
-# MAGIC
-# MAGIC **Narration Script (5 minutes):**
-# MAGIC
-# MAGIC 1. **Introduction (30 sec):**
-# MAGIC    - "This is the Phase 2 proof demo for the Seismo earthquake pipeline"
-# MAGIC    - "I'll demonstrate all requirements in one concise notebook"
-# MAGIC
-# MAGIC 2. **Schema Enforcement (30 sec):**
-# MAGIC    - "Here are our explicit schema definitions using PySpark StructType"
-# MAGIC    - "No inferSchema used anywhere - strict contract enforcement"
-# MAGIC
-# MAGIC 3. **Idempotency (1 min):**
-# MAGIC    - "Execution log shows the same batch run multiple times"
-# MAGIC    - "Subsequent runs have zero inserts and zero updates"
-# MAGIC    - "Silver has zero duplicate event_ids - MERGE pattern working"
-# MAGIC
-# MAGIC 4. **SCD Type 2 (1 min):**
-# MAGIC    - "Bronze preserves complete version history"
-# MAGIC    - "Events with multiple versions shown here"
-# MAGIC    - "Old versions marked not current, new versions marked current"
-# MAGIC    - "Invariant check: every event has exactly one current version"
-# MAGIC
-# MAGIC 5. **Audit Logging (1 min):**
-# MAGIC    - "Every pipeline run logged with full metrics"
-# MAGIC    - "File operations tracked separately"
-# MAGIC    - "Schema drift and errors logged to error table"
-# MAGIC
-# MAGIC 6. **Data Transformation (1 min):**
-# MAGIC    - "Bronze shows raw JSON with epoch timestamps"
-# MAGIC    - "Silver shows typed data with proper timestamps and doubles"
-# MAGIC    - "Enrichment columns populated: categories, parsed location"
-# MAGIC
-# MAGIC 7. **Summary (30 sec):**
-# MAGIC    - "All tables populated and healthy"
-# MAGIC    - "All Phase 2 requirements validated"
-# MAGIC    - "Pipeline is production-ready"
+
