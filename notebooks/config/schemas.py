@@ -2,9 +2,9 @@
 # MAGIC %md
 # MAGIC # Centralized Schema Definitions
 # MAGIC **Purpose:** All PySpark schemas for the Seismo pipeline (no inferSchema anywhere)
-# MAGIC 
+# MAGIC
 # MAGIC **Usage:** `%run ./config/schemas` in any notebook
-# MAGIC 
+# MAGIC
 # MAGIC **Author:** Seismo Team - Phase 2  
 # MAGIC **Last Updated:** October 9, 2026
 
@@ -78,25 +78,7 @@ EXPECTED_TOP_KEYS = [f.name for f in FEATURE_SCHEMA.fields]
 EXPECTED_PROPERTY_KEYS = [f.name for f in FEATURE_SCHEMA["properties"].dataType.fields]
 
 # ==============================================================================
-# 2. STAGING LAYER SCHEMA
-# ==============================================================================
-
-STAGING_SCHEMA = StructType([
-    StructField("event_id", StringType(), True),
-    StructField("raw_json", StringType(), False),
-    StructField("source_file_name", StringType(), False),
-    StructField("source_file_path", StringType(), False),
-    StructField("file_size_bytes", LongType(), True),
-    StructField("batch_id", StringType(), False),
-    StructField("ingestion_type", StringType(), False),
-    StructField("validation_status", StringType(), False),
-    StructField("validation_errors", StringType(), True),
-    StructField("created_timestamp", TimestampType(), False),
-    StructField("updated_timestamp", TimestampType(), False),
-])
-
-# ==============================================================================
-# 3. BRONZE LAYER SCHEMA
+# 2. BRONZE LAYER SCHEMA
 # ==============================================================================
 
 BRONZE_SCHEMA = StructType([
@@ -116,7 +98,7 @@ BRONZE_SCHEMA = StructType([
 ])
 
 # ==============================================================================
-# 4. SILVER LAYER SCHEMA
+# 3. SILVER LAYER SCHEMA
 # ==============================================================================
 
 SILVER_SCHEMA = StructType([
@@ -153,7 +135,7 @@ SILVER_SCHEMA = StructType([
 ])
 
 # ==============================================================================
-# 5. OPERATIONAL / LOGGING SCHEMAS
+# 4. OPERATIONAL / LOGGING SCHEMAS
 # ==============================================================================
 
 # Pipeline Execution Log
@@ -222,7 +204,7 @@ QUARANTINE_SCHEMA = StructType([
 ])
 
 # ==============================================================================
-# 6. SCHEMA VALIDATION HELPERS
+# 5. SCHEMA VALIDATION HELPERS
 # ==============================================================================
 
 def validate_schema_match(df_schema, expected_schema):
@@ -260,7 +242,6 @@ print("✅ Schemas loaded successfully!")
 print(f"📊 Available schemas: {len([s for s in dir() if s.endswith('_SCHEMA')])} schemas defined")
 print("   - ENVELOPE_SCHEMA (GeoJSON top-level)")
 print("   - FEATURE_SCHEMA (individual events)")
-print("   - STAGING_SCHEMA")
 print("   - BRONZE_SCHEMA")
 print("   - SILVER_SCHEMA")
 print("   - EXECUTION_LOG_SCHEMA")

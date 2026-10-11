@@ -18,9 +18,6 @@ CATALOG = "hive_metastore"  # Change if using Unity Catalog
 # TABLE NAMES
 # ==============================================================================
 
-# Staging Layer
-STAGING_RAW_DATA = "staging_raw_data"
-
 # Bronze Layer
 BRONZE_SEISMIC_EVENTS = "bronze_seismic_events"
 
@@ -37,7 +34,6 @@ ERROR_LOG = "error_log"
 # LAYER NAMES (for logging)
 # ==============================================================================
 
-LAYER_STAGING = "STAGING"
 LAYER_BRONZE = "BRONZE"
 LAYER_SILVER = "SILVER"
 
@@ -117,7 +113,6 @@ REPROCESS_DISCARD = "DISCARDED"
 # ==============================================================================
 
 NOTEBOOK_SETUP = "00_Setup"
-NOTEBOOK_STAGING = "01_Staging_Ingestion"
 NOTEBOOK_BRONZE = "02_Bronze_Ingestion"
 NOTEBOOK_SILVER = "03_Silver_Transformation"
 NOTEBOOK_QUALITY = "04_Data_Quality_Checks"

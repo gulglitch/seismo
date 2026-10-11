@@ -12,7 +12,6 @@
 # MAGIC
 # MAGIC **What it creates:**
 # MAGIC - Database: `seismo`
-# MAGIC - Staging Layer: `staging_raw_data`
 # MAGIC - Bronze Layer: `bronze_seismic_events`
 # MAGIC - Silver Layer: `silver_seismic_events`, `silver_seismic_events_quarantine`
 # MAGIC - Logging Tables: `pipeline_execution_log`, `file_operation_log`, `error_log`
@@ -62,17 +61,6 @@ spark.sql(f"CREATE DATABASE IF NOT EXISTS {DATABASE}")
 spark.sql(f"USE {DATABASE}")
 
 print(f"✅ Database '{DATABASE}' created and selected")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Step 4: Create Staging Layer Tables
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### Table: staging_raw_data
-# MAGIC Initial landing zone for raw GeoJSON data before Bronze ingestion
 
 # COMMAND ----------
 
