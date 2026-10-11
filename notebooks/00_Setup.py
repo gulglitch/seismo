@@ -14,7 +14,7 @@
 # MAGIC - Database: `seismo`
 # MAGIC - Bronze Layer: `bronze_seismic_events`
 # MAGIC - Silver Layer: `silver_seismic_events`, `silver_seismic_events_quarantine`
-# MAGIC - Logging Tables: `pipeline_execution_log`, `file_operation_log`, `error_log`
+# MAGIC - Operational Tables: `pipeline_execution_log`, `file_operation_log`, `error_log`
 # MAGIC
 # MAGIC **Last Updated:** October 9, 2026
 
@@ -64,30 +64,8 @@ print(f"✅ Database '{DATABASE}' created and selected")
 
 # COMMAND ----------
 
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {STAGING_RAW_DATA} (
-  staging_id          BIGINT GENERATED ALWAYS AS IDENTITY,
-  event_id            STRING COMMENT 'USGS event ID (may be NULL at this stage)',
-  raw_json            STRING COMMENT 'Complete GeoJSON feature as JSON string',
-  source_file_name    STRING COMMENT 'Original filename',
-  source_file_path    STRING COMMENT 'Full DBFS path to source file',
-  file_size_bytes     BIGINT COMMENT 'Size of source file in bytes',
-  batch_id            STRING COMMENT 'Batch identifier (e.g., FULL_2026-10-09)',
-  ingestion_type      STRING COMMENT 'FULL_LOAD / INCREMENTAL_LOAD / BACKFILL',
-  validation_status   STRING COMMENT 'VALID / INVALID / PENDING',
-  validation_errors   STRING COMMENT 'JSON array of validation issues if INVALID',
-  created_timestamp   TIMESTAMP COMMENT 'When record entered staging',
-  updated_timestamp   TIMESTAMP COMMENT 'Last modification time'
-) USING DELTA
-COMMENT 'Staging layer: temporary holding zone for raw data validation'
-""")
-
-print(f"✅ Table '{STAGING_RAW_DATA}' created")
-
-# COMMAND ----------
-
 # MAGIC %md
-# MAGIC ## Step 5: Create Bronze Layer Tables
+# MAGIC ## Step 4: Create Bronze Layer Tables
 
 # COMMAND ----------
 
@@ -123,7 +101,7 @@ print(f"✅ Table '{BRONZE_SEISMIC_EVENTS}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 6: Create Silver Layer Tables
+# MAGIC ## Step 5: Create Silver Layer Tables
 
 # COMMAND ----------
 
@@ -202,7 +180,7 @@ print(f"✅ Table '{SILVER_QUARANTINE}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 7: Create Operational/Logging Tables
+# MAGIC ## Step 6: Create Operational/Logging Tables
 
 # COMMAND ----------
 
@@ -297,7 +275,7 @@ print(f"✅ Table '{ERROR_LOG}' created")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 8: Validation & Summary
+# MAGIC ## Step 7: Validation & Summary
 
 # COMMAND ----------
 
@@ -317,7 +295,6 @@ print(f"✅ Table '{ERROR_LOG}' created")
 # COMMAND ----------
 
 tables = [
-    STAGING_RAW_DATA,
     BRONZE_SEISMIC_EVENTS,
     SILVER_SEISMIC_EVENTS,
     SILVER_QUARANTINE,
@@ -354,13 +331,12 @@ print("=" * 70)
 # MAGIC ## ✅ Setup Complete!
 # MAGIC
 # MAGIC **Next Steps:**
-# MAGIC 1. Upload your data files to DBFS `/Volumes/workspace/seismo/raw/`
-# MAGIC 2. Run `01_Staging_Ingestion.py` to load data into Staging
-# MAGIC 3. Run `02_Bronze_Ingestion.py` to move data to Bronze
-# MAGIC 4. Run `03_Silver_Transformation.py` to transform to Silver
+# MAGIC 1. Run `00_Fetch_USGS_Data.py` to fetch earthquake data from USGS API to DBFS
+# MAGIC 2. Run `01_Bronze_Ingestion.py` to load raw data into Bronze layer
+# MAGIC 3. Run `02_Silver_transformations.py` to transform data to Silver layer
 # MAGIC
 # MAGIC **Verification:**
-# MAGIC - All 7 tables created ✅
+# MAGIC - All 6 tables created ✅
 # MAGIC - All tables are empty (0 rows) ✅
 # MAGIC - Database `seismo` exists ✅
 # MAGIC - Partitioning applied to Bronze and Silver ✅
