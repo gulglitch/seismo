@@ -206,15 +206,65 @@ def run_silver(batch_id, force=False):
         # 2) Parse JSON structure explicitly using FEATURE_SCHEMA (No inferSchema)
         parsed = bronze_df.withColumn("parsed", F.from_json("raw_json", FEATURE_SCHEMA))
 
-        # 3) Check Schema Drift (Detect unexpected keys in raw_json)
-        top_keys = parsed.select(F.explode(F.json_object_keys("raw_json")).alias("k")).distinct().collect()
-        unexpected_keys = [r["k"] for r in top_keys if r["k"] not in EXPECTED_TOP_KEYS]
+        # 3) Schema Drift Detection & Quarantine
+        #    Per-record detection: identify records with unexpected top-level JSON keys.
+        #    Drift records are QUARANTINED (not processed further) — implements the
+        #    "quarantine non-conforming records without crashing the entire batch"
+        #    requirement from Phase 2.  Alternative approach: .option("mergeSchema", "true")
+        #    on Delta target writes (not needed here because we quarantine instead).
+        expected_keys_lit = F.array(*[F.lit(k) for k in EXPECTED_TOP_KEYS])
+        parsed = parsed.withColumn(
+            "_unexpected_keys",
+            F.array_except(F.json_object_keys("raw_json"), expected_keys_lit)
+        ).withColumn(
+            "_has_schema_drift",
+            F.size("_unexpected_keys") > 0
+        )
+
+        # Log drift to error_log (one entry per unexpected key found in the batch)
+        drift_keys = (parsed.filter("_has_schema_drift")
+                      .select(F.explode("_unexpected_keys").alias("k"))
+                      .distinct().collect())
+        unexpected_keys = [r["k"] for r in drift_keys]
         if unexpected_keys:
             for key in unexpected_keys:
-                err_row = (load_ts, LAYER, "02_Silver_transformations", batch_id, "SCHEMA_DRIFT", 
-                          f"Unexpected top-level key found: {key}", None, None, "UNRESOLVED", None, None, 
+                err_row = (load_ts, LAYER, "02_Silver_transformations", batch_id, "SCHEMA_DRIFT",
+                          f"Unexpected top-level key found: {key}", None, None, "UNRESOLVED", None, None,
                           load_ts, None)
                 append_with_identity(spark.createDataFrame([err_row], ERROR_LOG_SCHEMA), SILVER_ERR)
+
+        # Quarantine records with schema drift
+        drift_records = parsed.filter("_has_schema_drift")
+        drift_count = drift_records.count()
+        if drift_count > 0:
+            quarantine_drift = drift_records.select(
+                F.col("parsed.id").alias("event_id"),
+                F.col("batch_id"),
+                F.lit("Schema drift: unexpected top-level key(s) detected").alias("quarantine_reason"),
+                F.concat_ws(", ", "_unexpected_keys").alias("failed_columns"),
+                F.col("raw_json"),
+                F.lit("Record contains JSON keys not in expected schema").alias("error_details"),
+                F.lit(load_ts).alias("quarantine_timestamp"),
+                F.lit("PENDING").alias("reprocessing_status"),
+                F.lit(load_ts).alias("created_timestamp"),
+                F.lit(None).cast("timestamp").alias("updated_timestamp"),
+            )
+            append_with_identity(quarantine_drift, QUARANTINE)
+            m["errored"] += drift_count
+
+            log_file_operation(
+                layer=LAYER_SILVER,
+                operation_type=OP_CREATE,
+                file_name=QUARANTINE,
+                batch_id=batch_id,
+                records_affected=drift_count,
+                status=STATUS_SUCCESS,
+                file_path=f"table://{QUARANTINE}"
+            )
+            print(f"  Schema drift: {drift_count} record(s) quarantined (unexpected keys: {unexpected_keys})")
+
+        # Keep only conforming records for further processing
+        parsed = parsed.filter(~F.col("_has_schema_drift")).drop("_unexpected_keys", "_has_schema_drift")
 
         # 4) Extract and Cast fields
         extracted = parsed.select(
@@ -253,7 +303,7 @@ def run_silver(batch_id, force=False):
         bad_rows = extracted.filter(invalid_cond)
         good_rows = extracted.filter(~invalid_cond)
 
-        m["errored"] = bad_rows.count()
+        m["errored"] += bad_rows.count()
         if m["errored"] > 0:
             quarantine_records = bad_rows.select(
                 F.col("event_id"),

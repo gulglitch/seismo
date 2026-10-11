@@ -1,11 +1,15 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # Table Row Counts - Quick Data Verification
-# MAGIC 
+# MAGIC
 # MAGIC **Purpose:** Quickly check how many rows are in each table
-# MAGIC 
+# MAGIC
 # MAGIC **Use Case:** Verify pipeline ran successfully and tables have data
-# MAGIC 
+# MAGIC
 # MAGIC **Last Updated:** October 9, 2026
 
 # COMMAND ----------
