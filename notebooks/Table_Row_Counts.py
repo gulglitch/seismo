@@ -37,6 +37,12 @@
 # MAGIC UNION ALL 
 # MAGIC SELECT 'file_operation_log', COUNT(*) 
 # MAGIC FROM seismo.file_operation_log
+# MAGIC UNION ALL SELECT 'gold_fact_seismic_event', COUNT(*) FROM seismo.gold_fact_seismic_event
+# MAGIC UNION ALL SELECT 'gold_fact_daily_location_summary', COUNT(*) FROM seismo.gold_fact_daily_location_summary
+# MAGIC UNION ALL SELECT 'gold_dim_date', COUNT(*) FROM seismo.gold_dim_date
+# MAGIC UNION ALL SELECT 'gold_dim_location', COUNT(*) FROM seismo.gold_dim_location
+# MAGIC UNION ALL SELECT 'gold_dim_magnitude_class', COUNT(*) FROM seismo.gold_dim_magnitude_class
+# MAGIC UNION ALL SELECT 'gold_dim_depth_class', COUNT(*) FROM seismo.gold_dim_depth_class
 # MAGIC ORDER BY row_count DESC
 
 # COMMAND ----------

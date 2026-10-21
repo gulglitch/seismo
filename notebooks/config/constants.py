@@ -25,6 +25,21 @@ BRONZE_SEISMIC_EVENTS = "bronze_seismic_events"
 SILVER_SEISMIC_EVENTS = "silver_seismic_events"
 SILVER_QUARANTINE = "silver_seismic_events_quarantine"
 
+# Gold Layer (Star Schema)
+GOLD_DIM_DATE = "gold_dim_date"
+GOLD_DIM_LOCATION = "gold_dim_location"
+GOLD_DIM_MAGNITUDE_CLASS = "gold_dim_magnitude_class"
+GOLD_DIM_DEPTH_CLASS = "gold_dim_depth_class"
+GOLD_FACT_SEISMIC_EVENT = "gold_fact_seismic_event"
+GOLD_FACT_DAILY_SUMMARY = "gold_fact_daily_location_summary"
+GOLD_TABLES = [GOLD_DIM_DATE, GOLD_DIM_LOCATION, GOLD_DIM_MAGNITUDE_CLASS,
+               GOLD_DIM_DEPTH_CLASS, GOLD_FACT_SEISMIC_EVENT, GOLD_FACT_DAILY_SUMMARY]
+
+# Gold BI views over the audit tables
+GOLD_VW_PIPELINE_RUNS = "gold_vw_pipeline_runs"
+GOLD_VW_ERROR_SUMMARY = "gold_vw_error_summary"
+GOLD_VW_QUARANTINE_SUMMARY = "gold_vw_quarantine_summary"
+
 # Operational Tables
 PIPELINE_EXECUTION_LOG = "pipeline_execution_log"
 FILE_OPERATION_LOG = "file_operation_log"
@@ -36,6 +51,7 @@ ERROR_LOG = "error_log"
 
 LAYER_BRONZE = "BRONZE"
 LAYER_SILVER = "SILVER"
+LAYER_GOLD = "GOLD"
 
 # ==============================================================================
 # LOAD TYPES
@@ -117,6 +133,12 @@ NOTEBOOK_BRONZE = "02_Bronze_Ingestion"
 NOTEBOOK_SILVER = "03_Silver_Transformation"
 NOTEBOOK_QUALITY = "04_Data_Quality_Checks"
 NOTEBOOK_BACKFILL = "05_Backfill_Orchestrator"
+NOTEBOOK_GOLD = "03_Gold_Transformations"
+NOTEBOOK_GOLD_OPTIMIZE = "04_Gold_Optimize"
+NOTEBOOK_PIPELINE = "05_Run_Pipeline"
+
+# Unknown member surrogate key used by every Gold dimension
+GOLD_UNKNOWN_KEY = -1
 
 # ==============================================================================
 # DEFAULT PATHS (update these based on your DBFS setup)

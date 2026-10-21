@@ -1,0 +1,45 @@
+# Two jobs:
+#   seismo_fetch_usgs  - daily schedule, pulls the last N days from the USGS API into the raw Volume
+#   seismo_pipeline    - file-arrival trigger on the raw Volume: Bronze -> Silver -> Gold -> Optimize
+# Tasks have no cluster spec, so they run on serverless compute (Free Edition / serverless workspaces).
+resources:
+  jobs:
+    seismo_fetch_usgs:
+      name: seismo-fetch-usgs-incremental
+      schedule:
+        quartz_cron_expression: "0 15 2 * * ?"   # 02:15 UTC daily
+        timezone_id: UTC
+        pause_status: UNPAUSED
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: fetch_usgs
+          notebook_task:
+            notebook_path: ../notebooks/00_Fetch_USGS_Data.py
+            base_parameters:
+              fetch_type: INCREMENTAL_LOAD
+              days_back: "1"
+              min_magnitude: "2.5"
+              output_path: /Volumes/workspace/seismo/raw/
+
+    seismo_pipeline:
+      name: seismo-medallion-pipeline
+      max_concurrent_runs: 1
+      trigger:
+        pause_status: UNPAUSED
+        file_arrival:
+          url: /Volumes/workspace/seismo/raw/
+          min_time_between_triggers_seconds: 60
+          wait_after_last_change_seconds: 60
+      email_notifications:
+        on_failure: []          # add your email here
+      tasks:
+        - task_key: run_medallion_pipeline
+          timeout_seconds: 7200
+          max_retries: 1
+          min_retry_interval_millis: 120000
+          notebook_task:
+            notebook_path: ../notebooks/05_Run_Pipeline.py
+            base_parameters:
+              ingestion_type: INCREMENTAL_LOAD
+              run_optimize: "true"
+              database: seismo

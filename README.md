@@ -8,7 +8,7 @@
 
 ## 📋 Project Overview
 
-This project implements an **enterprise-grade data engineering pipeline** for global seismic event monitoring. The system ingests earthquake data from the USGS (United States Geological Survey) and processes it through a **Bronze → Silver** Medallion architecture to provide clean, analytics-ready data for disaster risk analysis and geological research.
+This project implements an **enterprise-grade data engineering pipeline** for global seismic event monitoring. The system ingests earthquake data from the USGS (United States Geological Survey) and processes it through a **Bronze → Silver → Gold** Medallion architecture into a Power BI–ready star schema for disaster risk analysis and geological research.
 
 ### Key Features
 
@@ -19,6 +19,9 @@ This project implements an **enterprise-grade data engineering pipeline** for gl
 - ✅ **Comprehensive audit framework** with execution, file operation, and error logging
 - ✅ **Schema drift detection** with automatic quarantine
 - ✅ **Robust error handling** across all pipeline stages
+- ✅ **Gold star schema** (2 facts, 4 dimensions) refreshed incrementally with `MERGE` at the end of every run
+- ✅ **Liquid Clustering + OPTIMIZE** on Gold facts for fast BI reads
+- ✅ **End-to-end orchestration** (`05_Run_Pipeline`) with a file-arrival Databricks Job
 
 ---
 
@@ -472,6 +475,31 @@ force    = "true"                # REQUIRED to override idempotency
 
 ---
 
+### **Scenario 6: Gold Layer & End-to-End Pipeline (Phase 3)**
+
+The Gold layer refreshes automatically at the end of every pipeline run. Run everything with one notebook:
+
+```python
+# Notebook: 05_Run_Pipeline.py
+ingestion_type = "INCREMENTAL_LOAD"   # or FULL_LOAD for the initial baseline
+source_path    = ""                   # blank → newest usgs_earthquake_incremental_*.json in the raw Volume
+run_optimize   = "true"
+```
+
+Or run Gold on its own after Silver:
+
+```python
+# Notebook: 03_Gold_Transformations.py
+batch_id     = ""        # blank → latest Silver batch (used for lineage in the logs)
+full_refresh = "false"   # true → rebuild Gold from all Silver rows
+```
+
+**Expected (2nd run with no new Silver data):** every Gold step logged as `SKIPPED`, 0 rows written.
+Star schema details: [`docs/Gold_Data_Dictionary.md`](docs/Gold_Data_Dictionary.md).
+Automation & Power BI setup: [`docs/Phase3_Setup_Guide.md`](docs/Phase3_Setup_Guide.md).
+
+---
+
 ### **Verification Queries**
 
 #### **Check Execution Status**
@@ -601,7 +629,34 @@ LIMIT 20;
 │  │  • SCD Type 1: Latest version only                     │ │
 │  │  • Partitioned: (year, month) from event_time          │ │
 │  │  • Quarantine: silver_seismic_events_quarantine        │ │
-│  └────────────────────────────────────────────────────────┘ │
+│  └──────────────────────┬─────────────────────────────────┘ │
+│                         │                                   │
+│                         ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  03_Gold_Transformations.py (SILVER → GOLD)            │ │
+│  │  • Watermark: only Silver rows changed since last run  │ │
+│  │  • MERGE dims (date, location, magnitude, depth)       │ │
+│  │  • MERGE fact on event_id; re-aggregate daily summary  │ │
+│  │  04_Gold_Optimize.py: OPTIMIZE + Liquid Clustering     │ │
+│  └──────────────────────┬─────────────────────────────────┘ │
+│                         │                                   │
+│                         ▼                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  GOLD LAYER (Delta Lake, Star Schema)                  │ │
+│  │  • gold_fact_seismic_event (1 row / event)             │ │
+│  │  • gold_fact_daily_location_summary (day × location)   │ │
+│  │  • gold_dim_date / _location / _magnitude_class /      │ │
+│  │    _depth_class                                        │ │
+│  │  • gold_vw_* audit views                               │ │
+│  └──────────────────────┬─────────────────────────────────┘ │
+│                         │  Databricks SQL Warehouse         │
+└─────────────────────────┼───────────────────────────────────┘
+                          ▼
+              ┌───────────────────────┐
+              │  Power BI Dashboard    │
+              └───────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
 │                                                             │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  OPERATIONAL TABLES (Audit & Logging)                  │ │
@@ -629,6 +684,8 @@ seismo/
 ├── docs/                                   # Project documentation
 │   ├── Phase1_Proposal.md                  # Phase 1 project proposal
 │   ├── Phase2_Design.md                    # Phase 2 design decisions
+│   ├── Gold_Data_Dictionary.md             # Phase 3 star schema, ER diagram, column reference
+│   ├── Phase3_Setup_Guide.md               # GitHub / Databricks Job / Power BI setup steps
 │   ├── Phase2_requirements.md              # Course requirements
 │   ├── Phase2_Req_new.md                   # Updated requirements
 │   └── Phase_2_Rubric.md                   # Grading rubric
@@ -643,7 +700,14 @@ seismo/
 │   ├── 00_Fetch_USGS_Data.py               # API data ingestion to DBFS
 │   ├── 01_Bronze_Ingestion.py              # RAW → BRONZE layer
 │   ├── 02_Silver_transformations.py        # BRONZE → SILVER layer
+│   ├── 03_Gold_Transformations.py          # SILVER → GOLD star schema (incremental MERGE)
+│   ├── 04_Gold_Optimize.py                 # OPTIMIZE / Liquid Clustering / statistics
+│   ├── 05_Run_Pipeline.py                  # End-to-end orchestrator (Bronze→Silver→Gold→Optimize)
 │   └── Table_Row_Counts.py                 # Data verification utility
+│
+├── jobs/
+│   └── seismo_pipeline_job.yml             # Databricks Jobs (daily fetch + file-arrival pipeline)
+├── databricks.yml                          # Databricks Asset Bundle config
 │
 └── src/                                    # Source code (not part of Databricks pipeline)
     └── ingestion/                          # Local ingestion scripts (gitignored)

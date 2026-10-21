@@ -1,0 +1,16 @@
+# Databricks Asset Bundle for the Seismo pipeline.
+# Deploy:  databricks bundle validate && databricks bundle deploy -t dev
+# Run now: databricks bundle run seismo_pipeline -t dev
+bundle:
+  name: seismo
+
+include:
+  - jobs/*.yml
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      # Replace with your workspace URL (Settings -> Workspace URL), e.g. https://dbc-xxxx.cloud.databricks.com
+      host: https://<your-workspace>.cloud.databricks.com
