@@ -1,7 +1,11 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # Execution Plan Analysis for Phase 3 Report
-# MAGIC 
+# MAGIC
 # MAGIC This notebook captures Spark execution plans for the most complex transformations in the pipeline.
 # MAGIC Use these outputs for the Spark UI & DAG Analysis section of your Phase 3 report.
 
@@ -13,6 +17,14 @@
 # COMMAND ----------
 
 # MAGIC %run ./config/constants
+
+# COMMAND ----------
+
+# MAGIC %run ./config/schemas
+
+# COMMAND ----------
+
+# MAGIC %run ./config/utils
 
 # COMMAND ----------
 
@@ -40,7 +52,7 @@ gold_tables_check.show(truncate=False)
 
 # MAGIC %md
 # MAGIC ## 1. Gold Fact Table - Complex Aggregation with Joins
-# MAGIC 
+# MAGIC
 # MAGIC This query represents the most complex transformation: joining multiple dimensions and aggregating earthquake events.
 
 # COMMAND ----------
@@ -91,9 +103,9 @@ print("=" * 80)
 
 # MAGIC %md
 # MAGIC ### 📸 SINGLE SCREENSHOT FOR REPORT - Formatted Execution Plan
-# MAGIC 
+# MAGIC
 # MAGIC **This is the ONLY cell you need to screenshot for your Phase 3 report.**
-# MAGIC 
+# MAGIC
 # MAGIC It shows the physical execution plan with clear tree structure.
 
 # COMMAND ----------
@@ -112,7 +124,7 @@ fact_query.explain(mode="formatted")
 
 # MAGIC %md
 # MAGIC ## 2. Execution Metrics Summary
-# MAGIC 
+# MAGIC
 # MAGIC Capture performance metrics to include in your report text (not a separate screenshot).
 
 # COMMAND ----------
@@ -134,7 +146,7 @@ print(f"\n✅ Query Execution Complete")
 print(f"   Rows Returned: {row_count:,}")
 print(f"   Execution Time: {execution_time:.2f} seconds")
 print(f"   Throughput: {(row_count / execution_time):,.0f} rows/second") if execution_time > 0 else None
-print(f"\n📝 Include these numbers in your report under 'Performance Metrics'")
+
 
 # COMMAND ----------
 
@@ -220,10 +232,12 @@ except Exception as e:
 #     (UNIX_TIMESTAMP(MAX(execution_end)) - UNIX_TIMESTAMP(MIN(execution_start))) / 60.0 as total_minutes
 # MAGIC FROM seismo.pipeline_execution_log
 # MAGIC WHERE status = 'SUCCESS'
-#     AND load_type = 'INCREMENTAL_LOAD'
+# MAGIC     AND load_type = 'INCREMENTAL_LOAD'
 # MAGIC GROUP BY batch_id
 # MAGIC ORDER BY pipeline_start DESC
 # MAGIC LIMIT 5;
+
+# COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## 📋 Instructions for Your Report
@@ -278,4 +292,4 @@ except Exception as e:
 # MAGIC **Optimization Impact:**
 # MAGIC - Broadcast joins eliminate 4 shuffle operations
 # MAGIC - Predicate pushdown reduces I/O by 60%
-# MAGIC - Liquid clustering improves filtered query performance by 30-50%
+# MAGIC - Liquid clustering improves filtered query performance by 30-50% ff2e50ceb5044983468673d14c69496ced05bbb3
