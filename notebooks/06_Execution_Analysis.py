@@ -12,16 +12,29 @@
 
 # COMMAND ----------
 
+# MAGIC %run ./config/constants
+
+# COMMAND ----------
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 import time
 
-# Get current catalog and schema
+# Set the database context to 'seismo'
+spark.sql(f"USE SCHEMA {DATABASE}")
+
+# Verify current context
 catalog = spark.sql("SELECT current_catalog()").collect()[0][0]
 schema = spark.sql("SELECT current_schema()").collect()[0][0]
 
-print(f"Current Catalog: {catalog}")
-print(f"Current Schema: {schema}")
+print(f"✅ Current Catalog: {catalog}")
+print(f"✅ Current Schema: {schema}")
+print(f"✅ Database configured: {DATABASE}")
+
+# Verify Gold tables exist
+gold_tables_check = spark.sql("SHOW TABLES").filter("tableName LIKE 'gold_%'")
+print(f"\n📊 Gold tables found: {gold_tables_check.count()}")
+gold_tables_check.show(truncate=False)
 
 # COMMAND ----------
 
