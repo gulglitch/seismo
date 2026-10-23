@@ -1,7 +1,11 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # MAGIC %md
 # MAGIC # Execution Plan Analysis for Phase 3 Report
-# MAGIC 
+# MAGIC
 # MAGIC This notebook captures Spark execution plans for the most complex transformations in the pipeline.
 # MAGIC Use these outputs for the Spark UI & DAG Analysis section of your Phase 3 report.
 
@@ -13,6 +17,14 @@
 # COMMAND ----------
 
 # MAGIC %run ./config/constants
+
+# COMMAND ----------
+
+# MAGIC %run ./config/schemas
+
+# COMMAND ----------
+
+# MAGIC %run ./config/utils
 
 # COMMAND ----------
 
@@ -40,7 +52,7 @@ gold_tables_check.show(truncate=False)
 
 # MAGIC %md
 # MAGIC ## 1. Gold Fact Table - Complex Aggregation with Joins
-# MAGIC 
+# MAGIC
 # MAGIC This query represents the most complex transformation: joining multiple dimensions and aggregating earthquake events.
 
 # COMMAND ----------
@@ -91,9 +103,9 @@ print("=" * 80)
 
 # MAGIC %md
 # MAGIC ### 📸 SINGLE SCREENSHOT FOR REPORT - Formatted Execution Plan
-# MAGIC 
+# MAGIC
 # MAGIC **This is the ONLY cell you need to screenshot for your Phase 3 report.**
-# MAGIC 
+# MAGIC
 # MAGIC It shows the physical execution plan with clear tree structure.
 
 # COMMAND ----------
@@ -112,7 +124,7 @@ fact_query.explain(mode="formatted")
 
 # MAGIC %md
 # MAGIC ## 2. Execution Metrics Summary
-# MAGIC 
+# MAGIC
 # MAGIC Capture performance metrics to include in your report text (not a separate screenshot).
 
 # COMMAND ----------
@@ -134,7 +146,7 @@ print(f"\n✅ Query Execution Complete")
 print(f"   Rows Returned: {row_count:,}")
 print(f"   Execution Time: {execution_time:.2f} seconds")
 print(f"   Throughput: {(row_count / execution_time):,.0f} rows/second") if execution_time > 0 else None
-print(f"\n📝 Include these numbers in your report under 'Performance Metrics'")
+
 
 # COMMAND ----------
 
@@ -158,88 +170,3 @@ for table in dim_tables:
         print(f"   {table}: {row_count:,} rows - {status}")
     except Exception as e:
         print(f"   {table}: ❌ Not found")
-
-print("\n📝 Mention this in your report under 'Broadcast Join Strategy'")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 4. Physical Layout (Liquid Clustering)
-
-# COMMAND ----------
-
-print("\n" + "=" * 80)
-print("PHYSICAL OPTIMIZATION STRATEGY")
-print("=" * 80)
-
-# Show clustering/partitioning info for fact table
-try:
-    desc = spark.sql("DESCRIBE EXTENDED gold_fact_seismic_event")
-    clustering_info = desc.filter(desc.col_name.contains("Cluster") | desc.col_name.contains("cluster")).collect()
-    
-    if clustering_info:
-        print("\n✅ Liquid Clustering detected:")
-        for row in clustering_info:
-            print(f"   {row['col_name']}: {row['data_type']}")
-    else:
-        print("\n📌 Table uses standard Delta layout (no Liquid Clustering in this runtime)")
-        print("   Optimization via OPTIMIZE ZORDER BY instead")
-    
-    print("\n📝 Include this in your report under 'Performance Optimization'")
-except Exception as e:
-    print(f"Could not retrieve clustering info: {e}")
-
-# MAGIC %md
-# MAGIC ## 📋 Instructions for Your Report
-# MAGIC 
-# MAGIC **Take ONE screenshot of Cell 5 output** (the formatted execution plan with the header).
-# MAGIC 
-# MAGIC **In your report, write:**
-# MAGIC 
-# MAGIC ### Spark Execution Analysis
-# MAGIC 
-# MAGIC **Methodology:** Since Databricks Community Edition does not provide Spark UI access, we captured the physical execution plan using `explain(mode="formatted")` in notebook `06_Execution_Analysis.py`.
-# MAGIC 
-# MAGIC **[INSERT SCREENSHOT HERE]**
-# MAGIC 
-# MAGIC *Figure X: Physical execution plan for Gold fact aggregation query*
-# MAGIC 
-# MAGIC **Analysis of the Execution Plan:**
-# MAGIC 
-# MAGIC 1. **Broadcast Hash Joins** (Stages 1-4)
-# MAGIC    - All four dimension tables are small (< 10K rows each)
-# MAGIC    - Spark automatically broadcasts them to all executor nodes
-# MAGIC    - Look for `BroadcastHashJoin` in the plan
-# MAGIC    - Avoids expensive shuffle operations (3-5x faster than sort-merge join)
-# MAGIC 
-# MAGIC 2. **Predicate Pushdown** 
-# MAGIC    - `WHERE year >= 2024 AND is_active = true` filters are pushed to Delta scan
-# MAGIC    - Reduces data read from storage by ~60%
-# MAGIC    - Look for `Filter` operations at the bottom of the plan (applied early)
-# MAGIC 
-# MAGIC 3. **Shuffle Operation**
-# MAGIC    - Occurs at the `GROUP BY` aggregation
-# MAGIC    - Look for `Exchange` in the plan
-# MAGIC    - Data is repartitioned by grouping keys across executors
-# MAGIC    - Necessary for distributed aggregation
-# MAGIC 
-# MAGIC 4. **Aggregation Strategy**
-# MAGIC    - **Partial Aggregation**: Local pre-aggregation at each executor
-# MAGIC    - **Final Aggregation**: Global aggregation after shuffle
-# MAGIC    - Look for `HashAggregate` operations
-# MAGIC    - Reduces shuffle data volume significantly
-# MAGIC 
-# MAGIC 5. **Liquid Clustering**
-# MAGIC    - Fact table clustered by `(date_key, location_key)`
-# MAGIC    - Enables file skipping for filtered queries
-# MAGIC    - Alternative to Hive partitioning for moderate cardinality
-# MAGIC 
-# MAGIC **Performance Metrics:**
-# MAGIC - Rows Returned: [insert from Cell 6]
-# MAGIC - Execution Time: [insert from Cell 6]
-# MAGIC - Throughput: [insert from Cell 6]
-# MAGIC 
-# MAGIC **Optimization Impact:**
-# MAGIC - Broadcast joins eliminate 4 shuffle operations
-# MAGIC - Predicate pushdown reduces I/O by 60%
-# MAGIC - Liquid clustering improves filtered query performance by 30-50%
