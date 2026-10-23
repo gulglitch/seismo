@@ -189,6 +189,42 @@ try:
 except Exception as e:
     print(f"Could not retrieve clustering info: {e}")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5. Pipeline Execution Timing Analysis
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Run this in Databricks to get your actual execution metrics
+# MAGIC SELECT 
+#     notebook_name,
+#     AVG(execution_duration_sec) as avg_duration_sec,
+#     MAX(execution_duration_sec) as max_duration_sec,
+#     COUNT(*) as num_runs
+# MAGIC FROM seismo.pipeline_execution_log
+# MAGIC WHERE status = 'SUCCESS'
+# MAGIC     AND load_type = 'INCREMENTAL_LOAD'
+# MAGIC GROUP BY notebook_name
+# MAGIC ORDER BY avg_duration_sec DESC;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Total pipeline time
+# MAGIC SELECT 
+#     batch_id,
+#     MIN(execution_start) as pipeline_start,
+#     MAX(execution_end) as pipeline_end,
+#     (UNIX_TIMESTAMP(MAX(execution_end)) - UNIX_TIMESTAMP(MIN(execution_start))) / 60.0 as total_minutes
+# MAGIC FROM seismo.pipeline_execution_log
+# MAGIC WHERE status = 'SUCCESS'
+#     AND load_type = 'INCREMENTAL_LOAD'
+# MAGIC GROUP BY batch_id
+# MAGIC ORDER BY pipeline_start DESC
+# MAGIC LIMIT 5;
+
 # MAGIC %md
 # MAGIC ## 📋 Instructions for Your Report
 # MAGIC 
