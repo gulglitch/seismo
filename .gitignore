@@ -64,3 +64,16 @@ data/samples/usgs_earthquake_full_load.json
 
 # Local ingestion scripts (not part of Databricks pipeline)
 src/ingestion/fetch_usgs_data.py
+
+# Course documentation and working files (keep locally, not in repo)
+docs/
+
+# Proof/demo notebooks (one-off, not production)
+notebooks/Phase2_Proof_Demo.py
+
+# LaTeX auxiliary files (if any)
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz

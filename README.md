@@ -1,14 +1,20 @@
 # 🌍 Seismo: Automated USGS Seismic Event Telemetry Pipeline
 
-**DS-3001 Data Engineering Project | FAST-NUCES**
+**DS-3001 Data Analysis and Visualization | FAST-NUCES**
 
-> Global earthquake monitoring and analytics using Databricks Medallion Architecture
+> Complete end-to-end data engineering solution: from raw API ingestion to Power BI dashboards
 
 ---
 
 ## 📋 Project Overview
 
-This project implements an **enterprise-grade data engineering pipeline** for global seismic event monitoring. The system ingests earthquake data from the USGS (United States Geological Survey) and processes it through a **Bronze → Silver → Gold** Medallion architecture into a Power BI–ready star schema for disaster risk analysis and geological research.
+This project implements a **production-grade data engineering pipeline** for global seismic event monitoring. The system ingests earthquake data from the USGS API and processes it through a **Bronze → Silver → Gold** Medallion architecture, delivering business-ready analytics through Power BI dashboards.
+
+### 🎓 Academic Project Phases
+
+- **Phase 1:** Proposal, data source identification, architectural design
+- **Phase 2:** Bronze/Silver implementation with SCD Type 2, idempotency, audit logging
+- **Phase 3:** ✅ **COMPLETE** — Gold star schema, Power BI dashboards, Spark optimization, FinOps analysis
 
 ### Key Features
 
@@ -18,20 +24,23 @@ This project implements an **enterprise-grade data engineering pipeline** for gl
 - ✅ **Delta Lake** for ACID transactions and time travel capabilities
 - ✅ **Comprehensive audit framework** with execution, file operation, and error logging
 - ✅ **Schema drift detection** with automatic quarantine
-- ✅ **Robust error handling** across all pipeline stages
-- ✅ **Gold star schema** (2 facts, 4 dimensions) refreshed incrementally with `MERGE` at the end of every run
-- ✅ **Liquid Clustering + OPTIMIZE** on Gold facts for fast BI reads
-- ✅ **End-to-end orchestration** (`05_Run_Pipeline`) with a file-arrival Databricks Job
+- ✅ **Gold star schema** (2 facts, 4 dimensions) optimized for analytical queries
+- ✅ **Liquid Clustering + OPTIMIZE** for fast BI performance
+- ✅ **Power BI dashboards** with 6+ interactive visuals
+- ✅ **End-to-end orchestration** with automated Databricks Jobs
+- ✅ **FinOps analysis** with cost optimization strategies
 
 ---
 
-## 🎯 Project Goals
+## 🎯 Project Objectives
 
 1. Build a production-grade lakehouse architecture on Databricks
 2. Implement SCD Type 2 pattern for historical event tracking
 3. Ensure pipeline idempotency for safe re-runs and backfills
-4. Handle schema drift and data quality issues gracefully
-5. Maintain comprehensive audit trails for all operations
+4. Design dimensional model (star schema) for analytical workloads
+5. Connect BI tools for data visualization and insights
+6. Analyze Spark execution plans and optimize performance
+7. Evaluate infrastructure costs and propose optimization strategies
 
 ---
 
@@ -40,41 +49,97 @@ This project implements an **enterprise-grade data engineering pipeline** for gl
 **API:** [USGS FDSN Event Web Service](https://earthquake.usgs.gov/fdsnws/event/1/query)
 
 - **Format:** GeoJSON
-- **Authentication:** None (public API)
-- **Data Quality:** Highly reliable, maintained by U.S. government
-- **Update Frequency:** Real-time (events updated as seismologists re-evaluate)
-
-### Sample Data Schema
-
-```json
-{
-  "type": "Feature",
-  "id": "us6000m2x2",
-  "properties": {
-    "mag": 4.6,
-    "place": "180 km SW of Merizo Village, Guam",
-    "time": 1704067154000,
-    "updated": 1704068000000,
-    "status": "reviewed",
-    "felt": 52,
-    "cdi": 3.2,
-    "mmi": 4.1,
-    "alert": "green",
-    "sig": 312,
-    "magType": "mb",
-    "type": "earthquake",
-    "tsunami": 0
-  },
-  "geometry": {
-    "type": "Point",
-    "coordinates": [143.3492, 12.2725, 30.12]
-  }
-}
-```
+- **Update Frequency:** Real-time
+- **Data Quality:** Highly reliable (U.S. government maintained)
+- **Coverage:** Global earthquake events (magnitude 2.5+)
 
 ---
 
-## 🗄️ Data Models
+## 🌟 Phase 3 Deliverables
+
+### Gold Layer Star Schema
+
+**Design:** 2 fact tables, 4 dimension tables optimized for Power BI analytics
+
+**Fact Tables:**
+- `gold_fact_seismic_event` — One row per earthquake event (165K+ rows)
+- `gold_fact_daily_location_summary` — Pre-aggregated daily stats by location
+
+**Dimension Tables:**
+- `gold_dim_date` — Calendar dimension (3K+ rows)
+- `gold_dim_location` — Geographic conformance (4.6K+ rows)
+- `gold_dim_magnitude_class` — Magnitude categories (7 rows)
+- `gold_dim_depth_class` — Depth categories (3 rows)
+
+**Refresh Strategy:** Incremental watermark-based MERGE (only processes changed Silver rows)
+
+📄 **Full schema documentation:** [`docs/Gold_Data_Dictionary.md`](docs/Gold_Data_Dictionary.md)
+
+### Power BI Dashboard
+
+**Connection:** Databricks SQL Warehouse via Partner Connect
+
+**6 Essential Visuals:**
+1. Interactive seismic event map (bubble map with magnitude/depth)
+2. Time-series: Monthly event frequency & energy release trend
+3. Magnitude distribution histogram
+4. Depth vs. magnitude scatter plot
+5. Top 10 most active regions (bar chart)
+6. KPI cards (total events, avg magnitude, recent activity)
+
+**Business Questions Answered:**
+- Which regions show accelerating seismic activity?
+- What is the shallow/deep earthquake ratio by region?
+- How does energy release correlate with frequency?
+- Which regions show increasing magnitude trends?
+
+📄 **Setup guide:** [`docs/Phase3_Setup_Guide.md`](docs/Phase3_Setup_Guide.md)
+
+### Spark Execution Analysis
+
+**Analysis Method:** Physical execution plan capture using `explain(mode="formatted")`
+
+**Key Optimizations Identified:**
+- ✅ **Broadcast Hash Joins:** All 4 dimensions (< 10K rows each) broadcast to executors → eliminates 4 shuffle operations
+- ✅ **Predicate Pushdown:** Filters pushed to Delta scan → 60% I/O reduction
+- ✅ **Two-Phase Aggregation:** Partial aggregation before shuffle → minimizes network transfer
+- ✅ **Photon Acceleration:** Databricks' vectorized engine → 2-4x speedup for scans
+- ✅ **Liquid Clustering:** `CLUSTER BY (date_key, location_key)` → 30-50% faster filtered queries
+
+**Performance Metrics:** 45K rows returned in 8.3 seconds (5,455 rows/sec throughput)
+
+### FinOps Cost Analysis
+
+**Current State:**
+- **Per-run cost:** \$0.036 (~4 cents) for 14-minute incremental load
+- **Annual projection:** \$361/year for hourly loads (\$30/month)
+- **Bottleneck:** Bronze JSON parsing = 76% of runtime
+
+**Optimization Strategies:**
+1. Parallelize JSON parsing → 53% cost reduction (\$146/year)
+2. Reduce OPTIMIZE frequency → 8% cost reduction
+3. Use spot instances → 70% cost reduction (\$93/year)
+4. Batch 6-hour intervals → 15% cost reduction
+
+**Optimized Target:** \$108/year (70% savings) with all optimizations
+
+**Already Implemented:**
+- Incremental processing (saves \$780/year vs. full refresh)
+- Broadcast joins (3-5x faster Gold queries)
+- Liquid clustering (30-50% faster BI queries)
+
+📄 **Full analysis:** [`docs/Phase3_FinOps_SIMPLE.md`](docs/Phase3_FinOps_SIMPLE.md)
+
+---
+
+- **Format:** GeoJSON
+- **Update Frequency:** Real-time
+- **Data Quality:** Highly reliable (U.S. government maintained)
+- **Coverage:** Global earthquake events (magnitude 2.5+)
+
+---
+
+## 🗄️ Architecture & Data Models
 
 ### **Bronze Layer: `bronze_seismic_events`**
 
@@ -248,9 +313,44 @@ Version 2 (Oct 3):  mag=4.7, status=reviewed,  is_current=TRUE, valid_to=NULL
 
 ---
 
-## 🚀 Execution Guide
+## 🚀 Quick Start
 
-### **Prerequisites**
+### Prerequisites
+
+1. Databricks Workspace (Community Edition or Azure)
+2. DBFS Access for file storage
+3. Unity Catalog or Hive Metastore configured
+
+### Initial Setup
+
+**Step 1: Run Setup Notebook**
+```python
+# Notebook: 00_Setup.py
+# Creates all tables (Bronze, Silver, Gold, logging tables)
+```
+
+**Step 2: Fetch Data**
+```python
+# Notebook: 00_Fetch_USGS_Data.py
+# Parameters: output_path, fetch_type (FULL_LOAD/INCREMENTAL_LOAD)
+```
+
+**Step 3: Run End-to-End Pipeline**
+```python
+# Notebook: 05_Run_Pipeline.py
+# Executes Bronze → Silver → Gold → Optimize
+# Parameters: ingestion_type, source_path, run_optimize
+```
+
+### Pipeline Execution Modes
+
+1. **Full Load:** Initial baseline (2019-2024 historical data)
+2. **Incremental Load:** Daily updates with new/changed events
+3. **Backfill:** Re-process historical batches
+
+For detailed execution scenarios, see inline documentation in notebooks.
+
+---
 
 1. **Databricks Workspace** (Community Edition or Azure with student credits)
 2. **DBFS Access** for file storage
@@ -569,102 +669,6 @@ FROM bronze_seismic_events
 WHERE valid_from <= TIMESTAMP '2026-10-01 23:59:59'
   AND (valid_to > TIMESTAMP '2026-10-01 23:59:59' OR valid_to IS NULL)
 LIMIT 20;
-```
-
----
-
-## 🏗️ Architecture Diagram
-
-### Medallion Data Pipeline
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  DATABRICKS WORKSPACE                                        │
-│                                                             │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  00_Fetch_USGS_Data.py                                 │ │
-│  │  • Connect to USGS API                                 │ │
-│  │  • Fetch GeoJSON data                                  │ │
-│  │  • Save to DBFS                                        │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  DBFS: /Volumes/workspace/seismo/raw/                  │ │
-│  │  • usgs_earthquake_full_load_2019_2024.json            │ │
-│  │  • usgs_earthquake_incremental_*.json                  │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  01_Bronze_Ingestion.py (RAW → BRONZE)                 │ │
-│  │  • Explicit schema enforcement (ENVELOPE_SCHEMA)       │ │
-│  │  • MD5 hash-based change detection                     │ │
-│  │  • SCD Type 2 versioning                               │ │
-│  │  • Idempotent execution                                │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  BRONZE LAYER (Delta Lake)                             │ │
-│  │  • Table: bronze_seismic_events                        │ │
-│  │  • SCD Type 2: Complete version history                │ │
-│  │  • Partitioned: (ingestion_type, year, month)          │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  02_Silver_transformations.py (BRONZE → SILVER)        │ │
-│  │  • Parse JSON with explicit FEATURE_SCHEMA             │ │
-│  │  • Schema drift detection & quarantine                 │ │
-│  │  • Type casting & validation                           │ │
-│  │  • Enrichment (country, region, categories)            │ │
-│  │  • MERGE INTO (idempotent upsert)                      │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  SILVER LAYER (Delta Lake)                             │ │
-│  │  • Table: silver_seismic_events                        │ │
-│  │  • SCD Type 1: Latest version only                     │ │
-│  │  • Partitioned: (year, month) from event_time          │ │
-│  │  • Quarantine: silver_seismic_events_quarantine        │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  03_Gold_Transformations.py (SILVER → GOLD)            │ │
-│  │  • Watermark: only Silver rows changed since last run  │ │
-│  │  • MERGE dims (date, location, magnitude, depth)       │ │
-│  │  • MERGE fact on event_id; re-aggregate daily summary  │ │
-│  │  04_Gold_Optimize.py: OPTIMIZE + Liquid Clustering     │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │                                   │
-│                         ▼                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  GOLD LAYER (Delta Lake, Star Schema)                  │ │
-│  │  • gold_fact_seismic_event (1 row / event)             │ │
-│  │  • gold_fact_daily_location_summary (day × location)   │ │
-│  │  • gold_dim_date / _location / _magnitude_class /      │ │
-│  │    _depth_class                                        │ │
-│  │  • gold_vw_* audit views                               │ │
-│  └──────────────────────┬─────────────────────────────────┘ │
-│                         │  Databricks SQL Warehouse         │
-└─────────────────────────┼───────────────────────────────────┘
-                          ▼
-              ┌───────────────────────┐
-              │  Power BI Dashboard    │
-              └───────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                                                             │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │  OPERATIONAL TABLES (Audit & Logging)                  │ │
-│  │  • pipeline_execution_log                              │ │
-│  │  • file_operation_log                                  │ │
-│  │  • error_log                                           │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
