@@ -47,7 +47,7 @@
     
     {\large
     Gul-e-Zara (24L-2592) \\
-    Maria Shahab (23L-2592)
+    Maria Shahab (24L-2953)
     \par}
     
     \vfill
@@ -114,9 +114,9 @@ The architecture follows a clear separation of concerns:
 
 \noindent\textbf{Rationale:}
 \begin{itemize}[nosep]
-    \item \textbf{Bronze:} Partition by ingestion metadata (not event time) because queries filter by batch/load type for debugging
-    \item \textbf{Silver:} Partition by event time for time-series analytical queries
-    \item Granularity choice: Monthly partitions balance file size (~5-10 MB/partition) vs. partition pruning efficiency
+    \item \textbf{Bronze:} Partition by ingestion metadata (year/month from load timestamp) because queries filter by batch/load type for debugging
+    \item \textbf{Silver:} Partition by event time (year/month from earthquake occurrence) for time-series analytical queries
+    \item Granularity choice: Monthly partitions provide reasonable pruning efficiency for this dataset size
 \end{itemize}
 
 \subsection{Schema Drift Handling}
@@ -157,7 +157,7 @@ The architecture follows a clear separation of concerns:
 \noindent\textbf{Rationale:}
 \begin{itemize}[nosep]
     \item Power BI dashboards require both event-level drill-through and aggregated trend analysis
-    \item Pre-aggregating daily summaries reduces query latency by 10x for time-series visuals
+    \item Pre-aggregating daily summaries improves query response time for time-series visuals
     \item Conforms to Kimball methodology for analytical warehouses
 \end{itemize}
 
@@ -172,7 +172,7 @@ The architecture follows a clear separation of concerns:
     \item Re-aggregate affected daily summaries
 \end{enumerate}
 
-\noindent\textbf{Impact:} Gold refresh time reduced from 101 sec (full) to 12 sec (incremental) for typical daily loads.
+\noindent\textbf{Impact:} Typical incremental runs process only changed data, significantly reducing execution time compared to full table refreshes.
 
 \newpage
 
@@ -209,9 +209,9 @@ ORDER BY dt.date_key DESC
 
 \subsection{Key Optimizations Identified}
 
-\subsubsection{1. Broadcast Hash Joins (Stages 4-28)}
+\subsubsection{1. Broadcast Hash Joins}
 
-All four dimension tables are small (< 10K rows each), so Spark automatically broadcasts them to all executor nodes using \texttt{PhotonBroadcastHashJoin}. This avoids expensive shuffle operations for joins.
+All four dimension tables are small, so Spark automatically broadcasts them to all executor nodes using \texttt{PhotonBroadcastHashJoin}. This avoids expensive shuffle operations for joins.
 
 \textbf{Verification:} Dimension row counts:
 \begin{itemize}
@@ -221,11 +221,11 @@ All four dimension tables are small (< 10K rows each), so Spark automatically br
     \item \texttt{gold\_dim\_depth\_class}: 3 rows
 \end{itemize}
 
-\textbf{Impact:} 4 broadcast joins eliminate 4 shuffle operations $\rightarrow$ 3-5x faster than sort-merge joins.
+\textbf{Impact:} Broadcast joins eliminate shuffle operations for dimension joins.
 
 \subsubsection{2. Predicate Pushdown}
 
-Filters (\texttt{year >= 2024}, \texttt{is\_active = true}) are pushed down to the Delta scan stage using \texttt{DictionaryFilters}. This reduces data read from storage by approximately 60\%.
+Filters (\texttt{year >= 2024}, \texttt{is\_active = true}) are pushed down to the Delta scan stage using \texttt{DictionaryFilters}. This reduces the amount of data processed early in the execution plan.
 
 Evidence in plan: \texttt{RequiredDataFilters: [isnotnull(is\_active), is\_active, ...]}
 
@@ -241,11 +241,11 @@ This pattern minimizes network transfer during the shuffle phase.
 
 \subsubsection{4. Photon Acceleration}
 
-The plan shows \texttt{PhotonScan}, \texttt{PhotonBroadcastHashJoin}, and \texttt{PhotonGroupingAgg} operators. Photon is Databricks' native vectorized execution engine, providing 2-4x speedup over traditional Spark for scan-heavy workloads.
+The plan shows \texttt{PhotonScan}, \texttt{PhotonBroadcastHashJoin}, and \texttt{PhotonGroupingAgg} operators. Photon is Databricks' native vectorized execution engine, providing performance improvements for scan-heavy workloads.
 
 \subsubsection{5. Liquid Clustering}
 
-The fact table uses \texttt{CLUSTER BY (date\_key, location\_key)}, enabling file skipping for filtered queries. When Power BI queries specific date ranges or locations, Delta Lake skips irrelevant files.
+The fact table uses \texttt{CLUSTER BY (date\_key, location\_key)}, enabling file skipping for filtered queries. When Power BI queries specific date ranges or locations, Delta Lake can skip irrelevant files based on statistics.
 
 \subsection{Performance Metrics}
 
@@ -266,10 +266,10 @@ Shuffle Write & 2.1 MB \\
 
 \textbf{Optimization Impact Summary:}
 \begin{itemize}
-    \item Broadcast joins: Eliminate 4 shuffle operations
-    \item Predicate pushdown: 60\% reduction in I/O
-    \item Liquid clustering: 30-50\% faster filtered queries
-    \item Photon: 2-4x scan/aggregation speedup
+    \item Broadcast joins: Eliminate shuffle operations for dimension joins
+    \item Predicate pushdown: Reduces data volume early in execution plan
+    \item Liquid clustering: Enables file skipping for common filter patterns
+    \item Photon: Vectorized execution for improved scan/aggregation performance
 \end{itemize}
 
 \newpage
@@ -278,10 +278,21 @@ Shuffle Write & 2.1 MB \\
 
 \subsection{Current Pipeline Cost}
 
+\textbf{Important Note:} The cost analysis below is based on Community Edition baseline assumptions and uses simplified DBU rate estimates. Actual production costs will vary significantly based on:
+\begin{itemize}[nosep]
+    \item Specific cluster configuration and instance types
+    \item Cloud provider (AWS, Azure, GCP) and region
+    \item Databricks pricing tier and commitment level
+    \item SQL Warehouse costs for Power BI connectivity
+    \item Underlying VM/compute costs in addition to DBU rates
+\end{itemize}
+
+The figures provided are illustrative for educational purposes and serve as a starting point for cost estimation.
+
 \subsubsection{Typical Incremental Run}
 
 \textbf{Duration:} 850 seconds (14.2 minutes) = 0.237 hours \\
-\textbf{Compute:} 0.237 DBU-hours (1 DBU = 1 compute hour) \\
+\textbf{Compute:} 0.237 DBU-hours \\
 \textbf{Cost:} 0.237 hours $\times$ \$0.15/DBU = \textbf{\$0.036 per run} ($\sim$4 cents)
 
 \vspace{0.3cm}
@@ -303,7 +314,7 @@ Gold Optimization & 71.6 & \$0.003 \\
 \caption{Stage-level cost breakdown for incremental run}
 \end{table}
 
-\textbf{Data Processed:} 932 new earthquake events $\rightarrow$ 165,657 fact records created
+\textbf{Data Processed:} Representative incremental run processing new earthquake events
 
 \subsection{Enterprise Annual Projection}
 
@@ -324,17 +335,18 @@ Gold Optimization & 71.6 & \$0.003 \\
 \textbf{Metric} & \textbf{Value} \\
 \midrule
 Runs per year & 8,760 \\
-Total compute hours & 2,073 hours \\
-Annual compute cost & \textbf{\$311/year} \\
-Storage cost (estimated) & \textbf{\$50/year} (500 GB Delta tables) \\
+Total compute hours & 2,068 hours \\
+Annual compute cost & \textbf{\$310/year} \\
 \midrule
-\textbf{Total Annual Cost} & \textbf{\$361/year} \\
+\textbf{Total Annual Cost} & \textbf{\$310/year (plus storage)} \\
 \bottomrule
 \end{tabular}
 \caption{Annual cost projection for hourly pipeline execution}
 \end{table}
 
-\textbf{Monthly Cost:} \$26/month compute + \$4/month storage = \textbf{\$30/month}
+\textbf{Monthly Cost:} Approximately \textbf{\$26/month (compute only)}
+
+\textbf{Note:} These projections are based on Community Edition baseline compute. Actual costs will vary based on cluster configuration, cloud provider pricing, storage costs, and workload characteristics.
 
 \subsection{Bottleneck Analysis}
 
@@ -344,124 +356,101 @@ This is the JSON parsing stage that reads raw USGS earthquake GeoJSON files.
 
 \subsection{Optimization Strategies}
 
-\subsubsection{1. Parallelize JSON Parsing (Immediate Impact)}
+\subsubsection{1. Parallelize JSON Parsing}
 
-\textbf{Problem:} Current code reads JSON files sequentially
+\textbf{Problem:} Bronze stage dominates execution time (645 sec of 850 sec total)
 
-\textbf{Solution:} Use \texttt{.repartition()} to parallelize across cores
+\textbf{Proposed Solution:} Investigate parallelization opportunities in the Bronze ingestion logic
 
-\begin{lstlisting}[language=Python, basicstyle=\small\ttfamily]
-# Current (slow):
-df = spark.read.json(source_path)
-
-# Optimized (3-5x faster):
-df = spark.read.json(source_path).repartition(8)
-\end{lstlisting}
-
-\textbf{Expected Impact:}
+\textbf{Potential Impact:}
 \begin{itemize}
-    \item Bronze stage: 645 sec $\rightarrow$ $\sim$200 sec (3x faster)
-    \item Total pipeline: 850 sec $\rightarrow$ $\sim$400 sec
-    \item \textbf{Cost Reduction:} 53\% (\$311/year $\rightarrow$ \$146/year)
-    \item \textbf{ROI:} \$165/year savings for $\sim$1 hour of development
+    \item Improved Bronze stage performance
+    \item Reduced total pipeline execution time
+    \item Lower overall compute costs
 \end{itemize}
+
+\textbf{Note:} Actual performance gains would require profiling and testing to quantify.
 
 \subsubsection{2. Reduce OPTIMIZE Frequency}
 
 \textbf{Current:} OPTIMIZE runs after every pipeline execution
 
-\textbf{Proposed:} Run OPTIMIZE once per day (24 runs $\rightarrow$ 1 run)
+\textbf{Proposed:} Run OPTIMIZE once per day instead of hourly
 
-\textbf{Expected Impact:}
+\textbf{Potential Impact:}
 \begin{itemize}
-    \item Saves $\sim$71 seconds $\times$ 23 runs = 27 minutes/day
-    \item \textbf{Cost Reduction:} 8\% (\$311/year $\rightarrow$ \$286/year)
-    \item \textbf{Tradeoff:} Slightly slower queries (5-10\%) during the day
+    \item Reduced compute overhead from optimization operations
+    \item Lower overall execution costs
+    \item \textbf{Tradeoff:} Query performance may be slightly degraded between OPTIMIZE runs
 \end{itemize}
 
-\subsubsection{3. Use Spot Instances (AWS) or Low-Priority VMs (Azure)}
-
-\textbf{Current:} On-demand compute pricing (\$0.15/DBU)
-
-\textbf{Optimized:} Spot/preemptible pricing ($\sim$\$0.05/DBU, 70\% discount)
-
-\textbf{Expected Impact:}
-\begin{itemize}
-    \item \textbf{Cost Reduction:} 70\% (\$311/year $\rightarrow$ \$93/year)
-    \item \textbf{Tradeoff:} Job may be interrupted if capacity is needed elsewhere
-\end{itemize}
-
-\subsubsection{4. Batch Multiple Increments}
+\subsubsection{3. Batch Multiple Incremental Runs}
 
 \textbf{Current:} Process 1 file every hour (8,760 runs/year)
 
-\textbf{Proposed:} Process 6 files every 6 hours (1,460 runs/year)
+\textbf{Proposed:} Process multiple files in batched intervals (e.g., every 4-6 hours)
 
-\textbf{Expected Impact:}
+\textbf{Potential Impact:}
 \begin{itemize}
-    \item Reduces job startup overhead (5-10 sec per job)
-    \item \textbf{Cost Reduction:} 15\% (\$311/year $\rightarrow$ \$264/year)
-    \item \textbf{Tradeoff:} Data is 6 hours stale instead of 1 hour
+    \item Reduced job startup overhead
+    \item Fewer total pipeline executions
+    \item Lower annual compute costs
+    \item \textbf{Tradeoff:} Increased data latency (several hours instead of 1 hour)
 \end{itemize}
 
-\subsection{Optimization ROI Summary}
+\subsection{Optimization Summary}
+
+The following table summarizes potential optimization strategies. Actual savings would require implementation and measurement to validate:
 
 \begin{table}[h]
 \centering
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-\textbf{Optimization} & \textbf{Effort} & \textbf{Savings/Year} & \textbf{New Cost} \\
+\textbf{Optimization} & \textbf{Implementation Effort} & \textbf{Expected Benefit} \\
 \midrule
-Baseline (current) & --- & --- & \$361 \\
-+ Parallelize Bronze & 1-2 hours & \$165 & \$196 \\
-+ Reduce OPTIMIZE freq & 30 min & \$25 & \$171 \\
-+ Use Spot Instances & 0 hours & \$218 & \$108 \\
-+ Batch 6-hour intervals & 2-3 hours & \$47 & \$124 \\
-\midrule
-\textbf{All combined} & \textbf{4-6 hours} & \textbf{\$253 (70\%)} & \textbf{\$108/year} \\
+Baseline (current) & --- & \$310/year (compute) \\
+Parallelize Bronze & Medium (1-2 hours) & Reduced execution time \\
+Reduce OPTIMIZE frequency & Low (30 min) & Lower compute overhead \\
+Batch intervals & Medium (2-3 hours) & Fewer job executions \\
 \bottomrule
 \end{tabular}
-\caption{Cost optimization strategies and ROI}
+\caption{Potential cost optimization strategies}
 \end{table}
 
 \subsection{Current Optimizations Already Implemented}
 
-These design decisions are \textbf{already saving $\sim$50\% vs. a naive implementation}:
+These design decisions provide significant benefits over a naive implementation:
 
 \begin{enumerate}
-    \item \textbf{Incremental Processing (SCD Type 2):} Only processes new/changed data. Without this, every run would be a full refresh ($\sim$3,000 sec instead of 850 sec). \textit{Savings: \$780/year}
+    \item \textbf{Incremental Processing:} Only processes new/changed data instead of full table refreshes, substantially reducing execution time and compute costs
     
     \item \textbf{Idempotent Design:} Re-running the same batch writes 0 rows, preventing duplicate data and wasted compute
     
-    \item \textbf{Broadcast Joins in Gold Layer:} Small dimension tables (< 10K rows) are broadcast to all nodes, avoiding expensive shuffle operations. \textit{Savings: Gold queries are 3-5x faster}
+    \item \textbf{Broadcast Joins in Gold Layer:} Small dimension tables are broadcast to all nodes, avoiding shuffle operations
     
-    \item \textbf{Liquid Clustering + Z-Ordering:} \texttt{CLUSTER BY (date\_key, location\_key)} on fact table enables file skipping for filtered queries. \textit{Savings: 30-50\% faster BI dashboard queries}
+    \item \textbf{Liquid Clustering:} \texttt{CLUSTER BY (date\_key, location\_key)} on fact table enables file skipping for filtered queries, improving BI dashboard performance
 \end{enumerate}
 
 \subsection{Recommendation}
 
 \textbf{Current State:}
 \begin{itemize}
-    \item Architecture is production-ready
-    \item Current cost: \$30/month for hourly loads
-    \item Bronze stage is the bottleneck (76\% of runtime)
+    \item Architecture implements best practices for data engineering
+    \item Current cost: Approximately \$26/month compute for hourly loads (plus storage)
+    \item Bronze stage represents the primary execution time bottleneck
 \end{itemize}
 
-\textbf{Next Steps:}
+\textbf{Recommended Next Steps:}
 \begin{enumerate}
-    \item \textbf{Immediate:} Deploy to production at current architecture (\$30/month is reasonable)
-    \item \textbf{Short-term (1-2 weeks):} Implement Bronze parallelization $\rightarrow$ reduce to \$16/month
-    \item \textbf{Long-term (if scaling 10x):} Consider streaming ingestion (Delta Live Tables)
+    \item \textbf{Immediate:} Deploy current architecture for production use
+    \item \textbf{Short-term:} Profile Bronze stage to identify specific performance bottlenecks
+    \item \textbf{Medium-term:} Implement validated optimizations based on profiling results
+    \item \textbf{Long-term:} Evaluate streaming ingestion if real-time requirements emerge
 \end{enumerate}
 
-\textbf{Cost-Performance Tradeoff:}
-\begin{itemize}
-    \item Current: \$30/month, 14-minute latency
-    \item Optimized: \$9/month, 7-minute latency (with all optimizations)
-    \item Streaming: \$50-80/month, sub-minute latency
-\end{itemize}
+\textbf{Latency Considerations:}
 
-For a seismic monitoring use case, \textbf{14-minute latency is acceptable} (earthquakes are reported within minutes, not seconds), so the current architecture provides good value.
+For the earthquake monitoring use case, 14-minute execution time plus hourly scheduling provides adequate freshness. The pipeline successfully balances data quality, performance, and operational cost.
 
 \newpage
 
