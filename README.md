@@ -1,1073 +1,418 @@
-# 🌍 Seismo: Automated USGS Seismic Event Telemetry Pipeline
+# Seismo — Real-time Earthquake Data Pipeline
 
-**DS-3001 Data Analysis and Visualization | FAST-NUCES**
+End-to-end Medallion Architecture pipeline that ingests global seismic data from the USGS API, maintains complete historical versions, and delivers business-ready analytics through a star schema optimized for Power BI.
 
-> Complete end-to-end data engineering solution: from raw API ingestion to Power BI dashboards
-
----
-
-## 📋 Project Overview
-
-This project implements a **production-grade data engineering pipeline** for global seismic event monitoring. The system ingests earthquake data from the USGS API and processes it through a **Bronze → Silver → Gold** Medallion architecture, delivering business-ready analytics through Power BI dashboards.
-
-### 🎓 Academic Project Phases
-
-- **Phase 1:** Proposal, data source identification, architectural design
-- **Phase 2:** Bronze/Silver implementation with SCD Type 2, idempotency, audit logging
-- **Phase 3:** ✅ **COMPLETE** — Gold star schema, Power BI dashboards, Spark optimization, FinOps analysis
-
-### Key Features
-
-- ✅ **Strict schema enforcement** (no `inferSchema`) using PySpark StructType
-- ✅ **Bronze layer with SCD Type 2** for complete historical tracking
-- ✅ **Idempotent execution** with hash-based change detection
-- ✅ **Delta Lake** for ACID transactions and time travel capabilities
-- ✅ **Comprehensive audit framework** with execution, file operation, and error logging
-- ✅ **Schema drift detection** with automatic quarantine
-- ✅ **Gold star schema** (2 facts, 4 dimensions) optimized for analytical queries
-- ✅ **Liquid Clustering + OPTIMIZE** for fast BI performance
-- ✅ **Power BI dashboards** with 6+ interactive visuals
-- ✅ **End-to-end orchestration** with automated Databricks Jobs
-- ✅ **FinOps analysis** with cost optimization strategies
+**Built with:** PySpark · Delta Lake · Databricks · Power BI
 
 ---
 
-## 🎯 Project Objectives
+## Architecture Overview
 
-1. Build a production-grade lakehouse architecture on Databricks
-2. Implement SCD Type 2 pattern for historical event tracking
-3. Ensure pipeline idempotency for safe re-runs and backfills
-4. Design dimensional model (star schema) for analytical workloads
-5. Connect BI tools for data visualization and insights
-6. Analyze Spark execution plans and optimize performance
-7. Evaluate infrastructure costs and propose optimization strategies
+A production-grade lakehouse implementation using the Bronze-Silver-Gold medallion pattern:
 
----
+- **Bronze Layer:** Raw GeoJSON archive with SCD Type 2 versioning — captures every update to earthquake magnitude, status, and metadata
+- **Silver Layer:** Cleansed, typed, analytics-ready events with data quality quarantine and schema drift detection
+- **Gold Layer:** Star schema (2 facts, 4 dimensions) with liquid clustering for fast BI queries
 
-## 📊 Data Source
+### Key Engineering Features
 
-**API:** [USGS FDSN Event Web Service](https://earthquake.usgs.gov/fdsnws/event/1/query)
-
-- **Format:** GeoJSON
-- **Update Frequency:** Real-time
-- **Data Quality:** Highly reliable (U.S. government maintained)
-- **Coverage:** Global earthquake events (magnitude 2.5+)
+- **Strict schema enforcement** — no `inferSchema` anywhere; all schemas explicitly defined in PySpark StructTypes
+- **Complete idempotency** — hash-based change detection ensures re-running the same data writes 0 rows
+- **SCD Type 2 history** — Bronze layer maintains full audit trail of every event modification with temporal validity windows
+- **Incremental processing** — watermark-based MERGE operations process only changed Silver rows when refreshing Gold
+- **Comprehensive audit framework** — execution logs, file operation logs, error tracking, and quarantine tables
+- **Automated orchestration** — file-arrival triggers run the complete pipeline end-to-end on new data
 
 ---
 
-## 🌟 Phase 3 Deliverables
+## Data Flow
 
-### Gold Layer Star Schema
-
-**Design:** 2 fact tables, 4 dimension tables optimized for Power BI analytics
-
-**Fact Tables:**
-- `gold_fact_seismic_event` — One row per earthquake event (165K+ rows)
-- `gold_fact_daily_location_summary` — Pre-aggregated daily stats by location
-
-**Dimension Tables:**
-- `gold_dim_date` — Calendar dimension (3K+ rows)
-- `gold_dim_location` — Geographic conformance (4.6K+ rows)
-- `gold_dim_magnitude_class` — Magnitude categories (7 rows)
-- `gold_dim_depth_class` — Depth categories (3 rows)
-
-**Refresh Strategy:** Incremental watermark-based MERGE (only processes changed Silver rows)
-
-📄 **Full schema documentation:** [`docs/Gold_Data_Dictionary.md`](docs/Gold_Data_Dictionary.md)
-
-### Power BI Dashboard
-
-**Connection:** Databricks SQL Warehouse via Partner Connect
-
-**6 Essential Visuals:**
-1. Interactive seismic event map (bubble map with magnitude/depth)
-2. Time-series: Monthly event frequency & energy release trend
-3. Magnitude distribution histogram
-4. Depth vs. magnitude scatter plot
-5. Top 10 most active regions (bar chart)
-6. KPI cards (total events, avg magnitude, recent activity)
-
-**Business Questions Answered:**
-- Which regions show accelerating seismic activity?
-- What is the shallow/deep earthquake ratio by region?
-- How does energy release correlate with frequency?
-- Which regions show increasing magnitude trends?
-
-📄 **Setup guide:** [`docs/Phase3_Setup_Guide.md`](docs/Phase3_Setup_Guide.md)
-
-### Spark Execution Analysis
-
-**Analysis Method:** Physical execution plan capture using `explain(mode="formatted")`
-
-**Key Optimizations Identified:**
-- ✅ **Broadcast Hash Joins:** All 4 dimensions (< 10K rows each) broadcast to executors → eliminates 4 shuffle operations
-- ✅ **Predicate Pushdown:** Filters pushed to Delta scan → 60% I/O reduction
-- ✅ **Two-Phase Aggregation:** Partial aggregation before shuffle → minimizes network transfer
-- ✅ **Photon Acceleration:** Databricks' vectorized engine → 2-4x speedup for scans
-- ✅ **Liquid Clustering:** `CLUSTER BY (date_key, location_key)` → 30-50% faster filtered queries
-
-**Performance Metrics:** 45K rows returned in 8.3 seconds (5,455 rows/sec throughput)
-
-### FinOps Cost Analysis
-
-**Current State:**
-- **Per-run cost:** \$0.036 (~4 cents) for 14-minute incremental load
-- **Annual projection:** \$361/year for hourly loads (\$30/month)
-- **Bottleneck:** Bronze JSON parsing = 76% of runtime
-
-**Optimization Strategies:**
-1. Parallelize JSON parsing → 53% cost reduction (\$146/year)
-2. Reduce OPTIMIZE frequency → 8% cost reduction
-3. Use spot instances → 70% cost reduction (\$93/year)
-4. Batch 6-hour intervals → 15% cost reduction
-
-**Optimized Target:** \$108/year (70% savings) with all optimizations
-
-**Already Implemented:**
-- Incremental processing (saves \$780/year vs. full refresh)
-- Broadcast joins (3-5x faster Gold queries)
-- Liquid clustering (30-50% faster BI queries)
-
-📄 **Full analysis:** [`docs/Phase3_FinOps_SIMPLE.md`](docs/Phase3_FinOps_SIMPLE.md)
-
----
-
-- **Format:** GeoJSON
-- **Update Frequency:** Real-time
-- **Data Quality:** Highly reliable (U.S. government maintained)
-- **Coverage:** Global earthquake events (magnitude 2.5+)
-
----
-
-## 🗄️ Architecture & Data Models
-
-### **Bronze Layer: `bronze_seismic_events`**
-
-**Purpose:** Raw data landing zone with SCD Type 2 (full historical tracking)
-
-**Primary Key:** `(event_id, valid_from)` — Composite key for versioning
-
-**Partitioning:** `PARTITIONED BY (ingestion_type, year, month)`
-
-| Column | Data Type | Nullable | Description |
-|--------|-----------|----------|-------------|
-| `event_id` | STRING | No | USGS event identifier (business key) |
-| `raw_json` | STRING | No | Complete GeoJSON feature, preserved as-is |
-| `source_file_name` | STRING | Yes | Name of source file processed |
-| `batch_id` | STRING | No | Batch identifier (e.g., FULL_2026-10-09, INCR_2026-10-10) |
-| `ingestion_type` | STRING | No | FULL_LOAD / INCREMENTAL_LOAD / BACKFILL |
-| `is_current` | BOOLEAN | No | TRUE = latest version of this event_id |
-| `valid_from` | TIMESTAMP | No | When this version became active (SCD2 start) |
-| `valid_to` | TIMESTAMP | Yes | When version was superseded (NULL if current) |
-| `record_hash` | STRING | No | MD5(raw_json) for change detection |
-| `created_timestamp` | TIMESTAMP | No | When record was first created |
-| `updated_timestamp` | TIMESTAMP | No | When record was last modified |
-| `year` | INT | Yes | Partition column (from valid_from) |
-| `month` | INT | Yes | Partition column (from valid_from) |
-
-**Key Features:**
-- ✅ Explicit schema enforcement via `ENVELOPE_SCHEMA` (no `inferSchema`)
-- ✅ SCD Type 2: Maintains complete version history of every event
-- ✅ Idempotent: Re-running same data inserts 0 rows (hash-based deduplication)
-- ✅ Change detection: Only events with different `record_hash` create new versions
-- ✅ Point-in-time queries: Reconstruct data state at any past timestamp
-
-**Example: Event Version History**
 ```
-Event: us6000abc1
-Version 1 (Oct 1):  mag=4.5, status=automatic, is_current=TRUE, valid_to=NULL
-Version 2 (Oct 3):  mag=4.7, status=reviewed,  is_current=TRUE, valid_to=NULL
-                    (Version 1 updated: is_current=FALSE, valid_to='2026-10-03')
+USGS API (GeoJSON)
+    ↓
+Bronze Layer (bronze_seismic_events)
+    • Raw JSON preservation
+    • SCD Type 2 versioning
+    • Hash-based change detection
+    • Partitioned by ingestion_type/year/month
+    ↓
+Silver Layer (silver_seismic_events)
+    • Type enforcement (epoch ms → timestamps)
+    • Data quality validation → quarantine
+    • Schema drift detection → error_log
+    • Enrichment (country/region parsing, categories)
+    • SCD Type 1 (latest version only)
+    ↓
+Gold Layer (star schema)
+    • Fact: gold_fact_seismic_event (~166K events)
+    • Fact: gold_fact_daily_location_summary (aggregated)
+    • Dimensions: date, location, magnitude_class, depth_class
+    • Liquid clustering on (date_key, location_key)
+    • Incremental MERGE via watermark
+    ↓
+Power BI Dashboard
+    • Interactive seismic event map
+    • Time-series trends (frequency, energy release)
+    • Magnitude/depth distribution analysis
+    • Top active regions
 ```
 
 ---
 
-### **Silver Layer: `silver_seismic_events`**
+## Tech Stack
 
-**Purpose:** Cleansed, typed, analytics-ready data (SCD Type 1 - latest version only)
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **Compute** | Databricks (PySpark 3.5) | Distributed data processing |
+| **Storage** | Delta Lake | ACID transactions, time travel, efficient MERGE |
+| **Orchestration** | Databricks Jobs | File-arrival triggers, scheduled incremental loads |
+| **Schema** | Explicit PySpark StructTypes | Type safety, no schema inference |
+| **Optimization** | Liquid Clustering, OPTIMIZE | Query performance for BI workloads |
+| **BI Layer** | Power BI Desktop + SQL Warehouse | Interactive dashboards, analytical queries |
+| **Audit** | Execution/File/Error logs | Observability, debugging, reprocessing |
 
-**Primary Key:** `event_id` — Unique USGS event identifier
+**Data Source:** [USGS FDSN Event Web Service](https://earthquake.usgs.gov/fdsnws/event/1/) — real-time global earthquake data (magnitude 2.5+)
 
-**Partitioning:** `PARTITIONED BY (year, month)` — Based on `event_time` for time-series queries
+---
 
-| Column | Data Type | Nullable | Description |
-|--------|-----------|----------|-------------|
-| `event_id` | STRING | No | USGS event identifier (PK) |
-| `magnitude` | DOUBLE | Yes | Earthquake magnitude |
-| `magnitude_type` | STRING | Yes | Magnitude scale (mb, ml, mw, md, etc.) |
-| `place` | STRING | Yes | Location description |
-| `longitude` | DOUBLE | Yes | Geographic longitude (-180 to 180) |
-| `latitude` | DOUBLE | Yes | Geographic latitude (-90 to 90) |
-| `depth_km` | DOUBLE | Yes | Focal depth in kilometers |
-| `event_time` | TIMESTAMP | Yes | UTC timestamp of earthquake occurrence |
-| `event_updated_time` | TIMESTAMP | Yes | USGS last revision timestamp (drives MERGE logic) |
-| `status` | STRING | Yes | Review status (automatic, reviewed, deleted) |
-| `felt_reports` | INT | Yes | Number of "Did You Feel It?" reports |
-| `cdi` | DOUBLE | Yes | Community Decimal Intensity |
-| `mmi` | DOUBLE | Yes | Modified Mercalli Intensity |
-| `alert_level` | STRING | Yes | PAGER alert level (green, yellow, orange, red) |
-| `significance` | INT | Yes | Event significance score |
-| `tsunami_flag` | BOOLEAN | Yes | Whether tsunami was generated |
-| `network_code` | STRING | Yes | Seismic network code (us, ci, ak, etc.) |
-| `event_type` | STRING | Yes | Event classification (earthquake, explosion, etc.) |
-| `is_active` | BOOLEAN | No | FALSE if status='deleted' (soft delete) |
-| `country` | STRING | Yes | Parsed country from place string |
-| `region` | STRING | Yes | Parsed region/locality from place string |
-| `depth_category` | STRING | Yes | Shallow (<70km) / Intermediate (70-300km) / Deep (>300km) |
-| `magnitude_category` | STRING | Yes | Minor/Light/Moderate/Strong/Major/Great (Richter scale) |
-| `source_batch_id` | STRING | Yes | Reference to Bronze batch_id |
-| `modification_sequence` | INT | Yes | Tracks update count for this event (1, 2, 3...) |
-| `is_most_recent_valid` | BOOLEAN | No | TRUE for latest valid modification |
-| `created_timestamp` | TIMESTAMP | No | When first created in Silver |
-| `updated_timestamp` | TIMESTAMP | No | When last modified in Silver |
-| `year` | INT | Yes | Partition column (from event_time) |
-| `month` | INT | Yes | Partition column (from event_time) |
+## Medallion Layers
+
+### Bronze Layer: `bronze_seismic_events`
+
+**Purpose:** Immutable raw data landing zone with complete historical versioning
+
+**Schema Highlights:**
+- **Primary Key:** `(event_id, valid_from)` — composite key for SCD Type 2
+- **Change Detection:** `record_hash = MD5(raw_json)` — only hash changes create new versions
+- **Temporal Tracking:** `is_current`, `valid_from`, `valid_to` — point-in-time query capability
+- **Partitioning:** `(ingestion_type, year, month)`
 
 **Key Features:**
-- ✅ Type enforcement: All epoch timestamps converted via `from_unixtime(ms/1000)`
-- ✅ Data quality: Invalid records quarantined (lat/lon bounds, magnitude limits)
-- ✅ Schema drift detection: Unexpected JSON keys logged to `error_log`
-- ✅ Idempotent MERGE: Updates only if `event_updated_time` > current value
-- ✅ Enrichment: Derived columns (country/region parsing, depth/magnitude categories)
+- Preserves original GeoJSON in `raw_json` column
+- Maintains complete audit trail of magnitude updates, status changes
+- Re-running identical data inserts 0 rows (hash-based idempotency)
+- Enables reconstruction of data state at any past timestamp
+
+**Example:** Event `us6000abc1` magnitude revised from 4.5 to 4.7 creates two versions:
+- Version 1: `mag=4.5`, `is_current=FALSE`, `valid_to='2026-10-03'`
+- Version 2: `mag=4.7`, `is_current=TRUE`, `valid_to=NULL`
+
+### Silver Layer: `silver_seismic_events`
+
+**Purpose:** Cleansed, typed, business-ready dataset (SCD Type 1)
+
+**Schema Highlights:**
+- **Primary Key:** `event_id`
+- **Type Enforcement:** All epoch milliseconds → `TIMESTAMP`, strict numeric types
+- **Data Quality:** Invalid records → `silver_seismic_events_quarantine`
+- **Enrichment:** Derived columns (`country`, `region`, `depth_category`, `magnitude_category`)
+- **Partitioning:** `(year, month)` based on `event_time`
+
+**Key Features:**
+- MERGE updates only if `event_updated_time` > existing value (timestamp guard)
+- Schema drift detection logs unexpected JSON keys to `error_log`
+- Failed records quarantined with detailed error context for reprocessing
+- `modification_sequence` tracks update count per event
+
+**Data Quality Validations:**
+- Latitude: -90 to 90
+- Longitude: -180 to 180
+- Magnitude: 0 to 10
+- Depth: ≥ 0 km
+
+### Gold Layer: Star Schema
+
+**Purpose:** Dimensional model optimized for analytical queries and Power BI
+
+#### Fact Tables
+1. **`gold_fact_seismic_event`** — transaction grain (1 row per event)
+   - ~166K rows
+   - Degenerate dimension: `event_id`
+   - Metrics: `magnitude`, `depth_km`, `energy_joules`, `felt_reports`, `significance`
+   - Foreign keys: `date_key`, `location_key`, `magnitude_class_key`, `depth_class_key`
+
+2. **`gold_fact_daily_location_summary`** — aggregate grain (1 row per date × location)
+   - Pre-aggregated for performance
+   - Metrics: `event_count`, `avg_magnitude`, `max_magnitude`, `total_energy_joules`, `shallow/intermediate/deep_count`
+
+#### Dimension Tables
+- **`gold_dim_date`** — calendar dimension (~3K rows)
+  - Attributes: `year`, `quarter`, `month`, `day_name`, `is_weekend`
+- **`gold_dim_location`** — geographic conformance (~4.6K rows)
+  - Grain: `(country, state_province)`
+  - US state code/name normalization
+- **`gold_dim_magnitude_class`** — Richter scale categories (7 rows)
+  - Minor, Light, Moderate, Strong, Major, Great
+- **`gold_dim_depth_class`** — focal depth categories (3 rows)
+  - Shallow (<70km), Intermediate (70-300km), Deep (>300km)
+
+**Physical Optimization:**
+- Liquid Clustering: `CLUSTER BY (date_key, location_key)` on facts
+- File skipping on filter columns without small-file problems
+- Unknown member (`key = -1`) in every dimension eliminates NULL foreign keys
+
+**Refresh Strategy:**
+- Incremental watermark-based MERGE: processes only Silver rows with `updated_timestamp > max(silver_updated_timestamp)` in Gold
+- Re-running with no new Silver data logs all steps as `SKIPPED` with 0 rows written
+- `full_refresh = true` rebuilds from all Silver rows (use after Gold logic changes)
 
 ---
 
-### **Quarantine Table: `silver_seismic_events_quarantine`**
-
-**Purpose:** Failed records awaiting investigation/reprocessing
-
-| Column | Data Type | Description |
-|--------|-----------|-------------|
-| `quarantine_id` | BIGINT | Auto-increment identity |
-| `event_id` | STRING | USGS event ID (if parseable) |
-| `batch_id` | STRING | Source batch identifier |
-| `quarantine_reason` | STRING | Why record was quarantined |
-| `failed_columns` | STRING | Which columns failed validation |
-| `raw_json` | STRING | Original JSON for reprocessing |
-| `error_details` | STRING | Detailed error information |
-| `quarantine_timestamp` | TIMESTAMP | When quarantined |
-| `reprocessing_status` | STRING | PENDING / REPROCESSED / DISCARDED |
-| `created_timestamp` | TIMESTAMP | Record creation time |
-| `updated_timestamp` | TIMESTAMP | Record modification time |
-
----
-
-### **Operational Tables**
-
-#### **`pipeline_execution_log`** — Batch-level execution tracking
-
-| Column | Data Type | Description |
-|--------|-----------|-------------|
-| `execution_id` | BIGINT | Auto-increment identity |
-| `execution_start` | TIMESTAMP | Pipeline start time |
-| `execution_end` | TIMESTAMP | Pipeline completion time |
-| `notebook_name` | STRING | Which notebook executed |
-| `batch_id` | STRING | Batch identifier |
-| `layer` | STRING | RAW_TO_BRONZE / BRONZE_TO_SILVER |
-| `load_type` | STRING | FULL_LOAD / INCREMENTAL_LOAD / BACKFILL |
-| `source_param` | STRING | File/path processed |
-| `status` | STRING | SUCCESS / FAILED / PARTIAL / SKIPPED |
-| `records_processed` | BIGINT | Total records in batch |
-| `records_inserted` | BIGINT | New records added |
-| `records_updated` | BIGINT | Records modified (Bronze: versions expired) |
-| `records_errored` | BIGINT | Records that failed |
-| `error_message` | STRING | High-level error summary |
-| `execution_duration_sec` | INT | Runtime in seconds |
-| `created_timestamp` | TIMESTAMP | Log entry creation time |
-
-#### **`file_operation_log`** — File-level audit trail
-
-| Column | Data Type | Description |
-|--------|-----------|-------------|
-| `log_id` | BIGINT | Auto-increment identity |
-| `operation_timestamp` | TIMESTAMP | When operation occurred |
-| `layer` | STRING | BRONZE / SILVER |
-| `operation_type` | STRING | CREATE / READ / UPDATE / DELETE |
-| `file_name` | STRING | File or table name |
-| `file_path` | STRING | Full path to file/table |
-| `batch_id` | STRING | Associated batch identifier |
-| `records_affected` | BIGINT | Number of records impacted |
-| `operation_status` | STRING | SUCCESS / FAILED |
-| `error_details` | STRING | Error message if operation failed |
-| `created_timestamp` | TIMESTAMP | Log entry creation time |
-| `updated_timestamp` | TIMESTAMP | Log entry modification time |
-
-#### **`error_log`** — Unified error tracking
-
-| Column | Data Type | Description |
-|--------|-----------|-------------|
-| `error_id` | BIGINT | Auto-increment identity |
-| `error_timestamp` | TIMESTAMP | When error occurred |
-| `layer` | STRING | BRONZE / SILVER |
-| `notebook_name` | STRING | Which notebook encountered error |
-| `batch_id` | STRING | Batch being processed |
-| `error_type` | STRING | VALIDATION / PARSE / CAST_FAILURE / SCHEMA_DRIFT |
-| `error_message` | STRING | Detailed error description |
-| `failed_record` | STRING | Problematic record (truncated) |
-| `stack_trace` | STRING | Full exception trace |
-| `resolution_status` | STRING | PENDING / RESOLVED / IGNORED |
-| `resolved_by` | STRING | Who resolved the error |
-| `resolution_notes` | STRING | How error was fixed |
-| `created_timestamp` | TIMESTAMP | Error logged time |
-| `updated_timestamp` | TIMESTAMP | Resolution time |
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-
-1. Databricks Workspace (Community Edition or Azure)
-2. DBFS Access for file storage
-3. Unity Catalog or Hive Metastore configured
+- Databricks workspace
+- DBFS or Unity Catalog volumes access
+- Database/schema creation permissions
 
 ### Initial Setup
 
-**Step 1: Run Setup Notebook**
+1. **Create tables and schema**
+   ```python
+   # Run: notebooks/00_Setup.py
+   # Creates: seismo database, 6 tables (Bronze, Silver, Quarantine, 3 audit tables)
+   ```
+
+2. **Fetch historical data**
+   ```python
+   # Run: notebooks/00_Fetch_USGS_Data.py
+   # Parameters: fetch_type = "FULL_LOAD", start_year = "2019", end_year = "2024"
+   # Output: ~200MB GeoJSON file with 100K+ events
+   ```
+
+3. **Run end-to-end pipeline**
+   ```python
+   # Run: notebooks/05_Run_Pipeline.py
+   # Parameters:
+   #   ingestion_type = "FULL_LOAD"
+   #   source_path = "/Volumes/workspace/seismo/raw/usgs_earthquake_full_load_2019_2024.json"
+   #   run_optimize = "true"
+   # 
+   # Executes: Bronze → Silver → Gold → Optimize
+   # Duration: ~14 minutes for full historical load
+   ```
+
+### Incremental Updates
+
 ```python
-# Notebook: 00_Setup.py
-# Creates all tables (Bronze, Silver, Gold, logging tables)
+# Run: notebooks/05_Run_Pipeline.py
+# Parameters:
+#   ingestion_type = "INCREMENTAL_LOAD"
+#   source_path = ""  # blank = auto-detect newest incremental file
+#   run_optimize = "true"
+#
+# Processes only new/changed events
+# Duration: ~14 minutes for typical daily update
 ```
 
-**Step 2: Fetch Data**
-```python
-# Notebook: 00_Fetch_USGS_Data.py
-# Parameters: output_path, fetch_type (FULL_LOAD/INCREMENTAL_LOAD)
+### Automation
+
+The pipeline can run automatically on file arrival:
+
+1. **Scheduled fetch job:** Runs `00_Fetch_USGS_Data.py` daily (fetches last 24 hours)
+2. **File-arrival trigger:** Detects new `.json` files in raw volume
+3. **Pipeline job:** Runs `05_Run_Pipeline.py` end-to-end (Bronze → Silver → Gold → Optimize)
+
+Configuration: `jobs/seismo_pipeline_job.yml` + `databricks.yml`
+
+Deployment:
+```bash
+databricks bundle validate
+databricks bundle deploy -t dev
 ```
-
-**Step 3: Run End-to-End Pipeline**
-```python
-# Notebook: 05_Run_Pipeline.py
-# Executes Bronze → Silver → Gold → Optimize
-# Parameters: ingestion_type, source_path, run_optimize
-```
-
-### Pipeline Execution Modes
-
-1. **Full Load:** Initial baseline (2019-2024 historical data)
-2. **Incremental Load:** Daily updates with new/changed events
-3. **Backfill:** Re-process historical batches
-
-For detailed execution scenarios, see inline documentation in notebooks.
 
 ---
 
-1. **Databricks Workspace** (Community Edition or Azure with student credits)
-2. **DBFS Access** for file storage
-3. **Unity Catalog or Hive Metastore** configured
+## Power BI Integration
+
+### Connection Setup
+1. Databricks → **SQL Warehouses** → select warehouse → **Connection details**
+2. Power BI Desktop → **Get Data** → **Databricks** → paste Server hostname & HTTP path
+3. Authentication: OAuth (preferred) or Personal Access Token
+4. Import Gold tables: 2 facts + 4 dimensions
+
+### Data Model Configuration
+- Mark `gold_dim_date` as the date table (Table tools → Mark as date table)
+- Create relationships (all Many-to-One, Single cross-filter):
+  - `gold_fact_seismic_event[date_key]` → `gold_dim_date[date_key]`
+  - `gold_fact_seismic_event[location_key]` → `gold_dim_location[location_key]`
+  - `gold_fact_seismic_event[magnitude_class_key]` → `gold_dim_magnitude_class[magnitude_class_key]`
+  - `gold_fact_seismic_event[depth_class_key]` → `gold_dim_depth_class[depth_class_key]`
+  - (Similar for `gold_fact_daily_location_summary`)
+
+### Example Visuals
+- **Map:** Bubble map with `latitude/longitude`, size = `magnitude`, color = `depth_class`
+- **Time series:** Line chart with `full_date`, sum of `event_count`
+- **Distribution:** Histogram of `magnitude` frequency
+- **Top regions:** Bar chart of `location_label` by `event_count`
+- **KPIs:** Cards showing total events, max magnitude, avg magnitude
+
+Detailed setup guide: [`docs/Phase3_Setup_Guide.md`](docs/Phase3_Setup_Guide.md)
 
 ---
 
-### **Initial Setup**
+## Performance & Optimization
 
-#### **Step 1: Run Setup Notebook**
-```python
-# Notebook: 00_Setup.py
-# Purpose: Create all tables and configure database
+### Query Performance
+- **Liquid Clustering:** Files organized by `(date_key, location_key)` enable file skipping on common BI filters
+- **Broadcast Joins:** All 4 dimensions (<10K rows) broadcast to executors → eliminates shuffle operations
+- **Pre-aggregation:** Daily summary fact reduces scans by ~100× for trend analysis
+- **Incremental refresh:** Only processes changed Silver rows → typical Gold refresh under 2 minutes
 
-# No parameters required
-# Creates:
-# - Database: seismo
-# - 6 tables: Bronze, Silver, Quarantine, and 3 logging tables
-# - Sets up partitioning and schema enforcement
-```
+### FinOps Analysis
+**Current State (typical incremental run):**
+- Duration: 14.2 minutes (850 seconds)
+- Cost: $0.036 per run (~4 cents)
+- Annual projection (hourly loads): ~$361/year
 
-**Expected Output:**
-- ✅ All 6 tables created
-- ✅ Database `seismo` exists
-- ✅ All tables empty (0 rows initially)
+**Optimization Opportunities:**
+1. Parallelize JSON parsing (53% cost reduction) → ~$146/year
+2. Reduce OPTIMIZE frequency to daily (8% reduction)
+3. Use spot instances (70% reduction) → ~$93/year
+4. Batch 6-hour intervals (15% reduction)
 
----
+**Optimized Target:** ~$108/year (70% savings)
 
-#### **Step 2: Fetch Data from USGS API**
-```python
-# Notebook: 00_Fetch_USGS_Data.py
-# Widget Parameters:
-output_path    = "/Volumes/workspace/seismo/raw/"
-fetch_type     = "FULL_LOAD"              # FULL_LOAD / SAMPLE / INCREMENTAL_LOAD
-start_year     = "2019"
-end_year       = "2024"
-days_back      = "7"                      # For incremental loads
-min_magnitude  = "2.5"
-```
-
-**What it does:**
-- Connects to USGS API
-- Fetches earthquake data based on selected type
-- Saves GeoJSON directly to DBFS
-- Validates file creation
-
-**Output:**
-- Full Load: `usgs_earthquake_full_load_2019_2024.json` (~200 MB, ~100k events)
-- Sample: `usgs_earthquake_sample.json` (~15 MB, ~10k events)
-- Incremental: `usgs_earthquake_incremental_YYYYMMDD_HHMMSS.json` (~1 MB)
+Detailed analysis: [`docs/Phase3_FinOps_SIMPLE.md`](docs/Phase3_FinOps_SIMPLE.md)
 
 ---
 
-### **Scenario 1: Standard Full Load (Initial Baseline)**
+## Repository Structure
 
-Load historical 6-year dataset into Bronze and Silver.
-
-#### **Step 1: Bronze Ingestion**
-```python
-# Notebook: 01_Bronze_Ingestion.py
-# Widget Parameters:
-source_path    = "/Volumes/workspace/seismo/raw/usgs_earthquake_full_load_2019_2024.json"
-ingestion_type = "FULL_LOAD"
-batch_id       = "FULL_2026-10-09"        # Or leave blank for auto-generation
-run_date       = "2026-10-09"             # Or leave blank for today
-force          = "false"
-database       = "seismo"
 ```
-
-**What Happens:**
-1. Reads GeoJSON with explicit `ENVELOPE_SCHEMA` (no inferSchema)
-2. Explodes features array and extracts event_id
-3. Calculates `record_hash = MD5(raw_json)` for change detection
-4. De-duplicates within batch (keeps most recent `updated_ms`)
-5. Adds Bronze metadata with single `load_timestamp` for entire batch
-6. Appends to Bronze table with `is_current = TRUE`
-7. Logs execution to `pipeline_execution_log`
-
-**Expected Results:**
-- Bronze table populated with ~100,000+ events
-- All records have `is_current = TRUE`
-- `pipeline_execution_log` shows SUCCESS
-- `file_operation_log` shows READ and UPDATE operations
-
-#### **Step 2: Silver Transformation**
-```python
-# Notebook: 02_Silver_transformations.py
-# Widget Parameters:
-batch_id  = "FULL_2026-10-09"    # Must match Bronze batch_id
-force     = "false"
-database  = "seismo"
+seismo/
+├── notebooks/
+│   ├── config/
+│   │   ├── constants.py          # Table names, paths, constants
+│   │   ├── schemas.py            # Explicit PySpark StructTypes
+│   │   └── utils.py              # Shared utility functions
+│   ├── 00_Setup.py               # Initial table creation (run once)
+│   ├── 00_Fetch_USGS_Data.py     # API data ingestion
+│   ├── 01_Bronze_Ingestion.py    # RAW → BRONZE (SCD2)
+│   ├── 02_Silver_transformations.py  # BRONZE → SILVER (SCD1)
+│   ├── 03_Gold_Transformations.py    # SILVER → GOLD (star schema)
+│   ├── 04_Gold_Optimize.py       # OPTIMIZE + statistics
+│   ├── 05_Run_Pipeline.py        # End-to-end orchestrator
+│   └── 06_Execution_Analysis.py  # Pipeline observability
+├── jobs/
+│   └── seismo_pipeline_job.yml   # Databricks Job definitions
+├── docs/
+│   ├── Gold_Data_Dictionary.md   # Star schema documentation
+│   ├── Phase3_Setup_Guide.md     # Deployment & Power BI setup
+│   └── Phase3_FinOps_SIMPLE.md   # Cost analysis
+├── data/samples/                 # Sample GeoJSON files
+├── databricks.yml                # Asset Bundle configuration
+└── README.md                     # This file
 ```
-
-**What Happens:**
-1. Reads current Bronze records (`is_current = TRUE`) for batch
-2. Parses JSON using explicit `FEATURE_SCHEMA`
-3. Detects schema drift (unexpected top-level keys) → quarantines
-4. Extracts and casts fields (epoch ms → timestamp, strings → doubles)
-5. Validates data bounds (lat/lon, magnitude limits) → quarantines invalid
-6. Enriches with derived columns (country, region, categories)
-7. De-duplicates by event_id (keeps highest `event_updated_time`)
-8. MERGE INTO Silver (upsert on event_id)
-9. Logs execution and file operations
-
-**Expected Results:**
-- Silver table populated with typed, cleansed data
-- All timestamps converted from epoch milliseconds
-- Derived columns populated (country, region, depth_category, magnitude_category)
-- Invalid records in `silver_seismic_events_quarantine`
-- Schema drift logged to `error_log`
 
 ---
 
-### **Scenario 2: Incremental Load (Updates & New Events)**
+## Observability & Debugging
 
-Process new events and magnitude updates from USGS.
-
-#### **Step 1: Fetch Incremental Data**
-```python
-# Notebook: 00_Fetch_USGS_Data.py
-# Widget Parameters:
-output_path    = "/Volumes/workspace/seismo/raw/"
-fetch_type     = "INCREMENTAL_LOAD"
-days_back      = "7"
-min_magnitude  = "2.5"
-```
-
-This creates a timestamped file with recent updates.
-
-#### **Step 2: Bronze Ingestion**
-```python
-# Notebook: 01_Bronze_Ingestion.py
-# Widget Parameters:
-source_path    = "/Volumes/workspace/seismo/raw/usgs_earthquake_incremental_20261010_143022.json"
-ingestion_type = "INCREMENTAL_LOAD"
-batch_id       = "INCR_2026-10-10"
-run_date       = "2026-10-10"
-force          = "false"
-```
-
-**What Happens (SCD Type 2 Logic):**
-1. Reads new/updated events
-2. Compares `record_hash` with existing current records
-3. **If hash unchanged:** Skip (no-op)
-4. **If hash changed (magnitude updated, status changed, etc.):**
-   - Old version: Set `is_current = FALSE`, `valid_to = new_load_timestamp`
-   - New version: Insert with `is_current = TRUE`, `valid_from = new_load_timestamp`
-5. **If new event:** Insert with `is_current = TRUE`
-
-**Result:** Complete audit trail of all changes to each event.
-
-#### **Step 3: Silver Transformation**
-```python
-# Notebook: 02_Silver_transformations.py
-# Widget Parameters:
-batch_id  = "INCR_2026-10-10"
-force     = "false"
-```
-
-**What Happens:**
-- MERGE updates existing events only if `event_updated_time` is newer
-- New events inserted
-- `modification_sequence` incremented for updated records
-- Old data never overwrites newer updates (timestamp-based guard)
-
----
-
-### **Scenario 3: Backfill (Historical Re-processing)**
-
-Re-run a past batch (e.g., after fixing data quality issues or schema changes).
-
-```python
-# Bronze Backfill
-# Notebook: 01_Bronze_Ingestion.py
-source_path    = "/Volumes/workspace/seismo/raw/historical/september_data.json"
-ingestion_type = "BACKFILL"
-batch_id       = "BACKFILL_2026-09-01"
-run_date       = "2026-09-01"
-force          = "false"                  # Use "true" if batch already succeeded
-
-# Silver Backfill
-# Notebook: 02_Silver_transformations.py
-batch_id  = "BACKFILL_2026-09-01"
-force     = "true"                        # Required if batch already processed
-```
-
-**Use Cases:**
-- Recovering from data loss
-- Reprocessing after schema evolution
-- Loading archived data from new source
-
----
-
-### **Scenario 4: Re-run After Failure**
-
-If a pipeline run fails, simply re-run with the same `batch_id`.
-
-```python
-batch_id = "INCR_2026-10-10"    # Same batch_id that failed
-force    = "false"               # Not needed for failed runs
-```
-
-**Behavior:**
-- Failed runs are NOT blocked by idempotency checks
-- Only SUCCESS/PARTIAL runs require `force=true` to re-run
-- Check `pipeline_execution_log` for failure details
-
----
-
-### **Scenario 5: Force Re-run (Idempotency Override)**
-
-Re-process a batch that already succeeded (e.g., after pipeline logic changes).
-
-```python
-batch_id = "FULL_2026-10-09"    # Already succeeded batch
-force    = "true"                # REQUIRED to override idempotency
-```
-
-**Warning:** Even with `force=true`, data-level idempotency prevents duplicates:
-- Bronze: Unchanged hashes → 0 rows written
-- Silver: Same `event_updated_time` → 0 rows updated
-
----
-
-### **Scenario 6: Gold Layer & End-to-End Pipeline (Phase 3)**
-
-The Gold layer refreshes automatically at the end of every pipeline run. Run everything with one notebook:
-
-```python
-# Notebook: 05_Run_Pipeline.py
-ingestion_type = "INCREMENTAL_LOAD"   # or FULL_LOAD for the initial baseline
-source_path    = ""                   # blank → newest usgs_earthquake_incremental_*.json in the raw Volume
-run_optimize   = "true"
-```
-
-Or run Gold on its own after Silver:
-
-```python
-# Notebook: 03_Gold_Transformations.py
-batch_id     = ""        # blank → latest Silver batch (used for lineage in the logs)
-full_refresh = "false"   # true → rebuild Gold from all Silver rows
-```
-
-**Expected (2nd run with no new Silver data):** every Gold step logged as `SKIPPED`, 0 rows written.
-Star schema details: [`docs/Gold_Data_Dictionary.md`](docs/Gold_Data_Dictionary.md).
-Automation & Power BI setup: [`docs/Phase3_Setup_Guide.md`](docs/Phase3_Setup_Guide.md).
-
----
-
-### **Verification Queries**
-
-#### **Check Execution Status**
+### Execution Monitoring
 ```sql
-SELECT execution_id, batch_id, layer, load_type, status, 
-       records_processed, records_inserted, records_updated, execution_duration_sec
+-- Latest pipeline run details
+SELECT execution_id, layer, notebook_name, status,
+       records_processed, records_inserted, records_updated,
+       execution_duration_sec
 FROM pipeline_execution_log
-ORDER BY execution_id DESC
-LIMIT 10;
-```
-
-#### **Verify Bronze SCD2 (Version History)**
-```sql
--- Show all versions of events that changed
-SELECT event_id, batch_id, is_current, valid_from, valid_to,
-       LEFT(raw_json, 100) AS json_preview
-FROM bronze_seismic_events
-WHERE event_id IN (
-    SELECT event_id FROM bronze_seismic_events 
-    GROUP BY event_id HAVING COUNT(*) > 1
+WHERE batch_id = (
+    SELECT batch_id FROM pipeline_execution_log 
+    WHERE layer = 'END_TO_END' 
+    ORDER BY execution_id DESC LIMIT 1
 )
-ORDER BY event_id, valid_from;
+ORDER BY execution_id;
 ```
 
-#### **Verify Silver Idempotency (No Duplicates)**
+### Data Quality Checks
 ```sql
--- Must return 0 rows
-SELECT event_id, COUNT(*) AS duplicate_count
+-- Check quarantined records
+SELECT quarantine_reason, COUNT(*) as count
+FROM silver_seismic_events_quarantine
+GROUP BY quarantine_reason
+ORDER BY count DESC;
+
+-- Verify no duplicate events in Silver
+SELECT event_id, COUNT(*) as duplicate_count
 FROM silver_seismic_events
 GROUP BY event_id
 HAVING COUNT(*) > 1;
 ```
 
-#### **Check File Operations**
+### Historical Analysis (Bronze SCD2)
 ```sql
-SELECT operation_timestamp, layer, operation_type, file_name, 
-       batch_id, records_affected, operation_status
-FROM file_operation_log
-ORDER BY operation_timestamp DESC
-LIMIT 20;
-```
-
-#### **Review Quarantined Records**
-```sql
-SELECT quarantine_id, event_id, batch_id, quarantine_reason, 
-       failed_columns, reprocessing_status
-FROM silver_seismic_events_quarantine
-ORDER BY quarantine_timestamp DESC;
-```
-
-#### **Check for Errors**
-```sql
-SELECT error_timestamp, layer, error_type, error_message, 
-       resolution_status
-FROM error_log
-WHERE resolution_status = 'PENDING'
-ORDER BY error_timestamp DESC;
-```
-
-#### **Point-in-Time Query (Bronze Historical State)**
-```sql
--- State of the world on Oct 1, 2026
+-- Point-in-time query: state of data on Oct 1, 2026
 SELECT event_id, 
-       GET_JSON_OBJECT(raw_json,'$.properties.mag') AS magnitude, 
+       GET_JSON_OBJECT(raw_json, '$.properties.mag') AS magnitude,
        valid_from, valid_to
 FROM bronze_seismic_events
 WHERE valid_from <= TIMESTAMP '2026-10-01 23:59:59'
   AND (valid_to > TIMESTAMP '2026-10-01 23:59:59' OR valid_to IS NULL)
-LIMIT 20;
-```
+LIMIT 100;
 
----
-
-## 📁 Repository Structure
-
-```
-seismo/
-├── .gitignore                              # Git ignore rules
-├── README.md                               # This file (Phase 2 documentation)
-│
-├── data/
-│   └── samples/                            # Sample data files
-│       ├── usgs_earthquake_sample.json     # 1-month sample (~15 MB)
-│       └── usgs_earthquake_incremental.json # 7-day updates (~1 MB)
-│
-├── docs/                                   # Project documentation
-│   ├── Phase1_Proposal.md                  # Phase 1 project proposal
-│   ├── Phase2_Design.md                    # Phase 2 design decisions
-│   ├── Gold_Data_Dictionary.md             # Phase 3 star schema, ER diagram, column reference
-│   ├── Phase3_Setup_Guide.md               # GitHub / Databricks Job / Power BI setup steps
-│   ├── Phase2_requirements.md              # Course requirements
-│   ├── Phase2_Req_new.md                   # Updated requirements
-│   └── Phase_2_Rubric.md                   # Grading rubric
-│
-├── notebooks/                              # Databricks PySpark notebooks
-│   ├── config/                             # Shared configuration modules
-│   │   ├── schemas.py                      # All PySpark schema definitions
-│   │   ├── constants.py                    # Pipeline constants and table names
-│   │   └── utils.py                        # Utility functions
-│   │
-│   ├── 00_Setup.py                         # Initial table creation
-│   ├── 00_Fetch_USGS_Data.py               # API data ingestion to DBFS
-│   ├── 01_Bronze_Ingestion.py              # RAW → BRONZE layer
-│   ├── 02_Silver_transformations.py        # BRONZE → SILVER layer
-│   ├── 03_Gold_Transformations.py          # SILVER → GOLD star schema (incremental MERGE)
-│   ├── 04_Gold_Optimize.py                 # OPTIMIZE / Liquid Clustering / statistics
-│   ├── 05_Run_Pipeline.py                  # End-to-end orchestrator (Bronze→Silver→Gold→Optimize)
-│   └── Table_Row_Counts.py                 # Data verification utility
-│
-├── jobs/
-│   └── seismo_pipeline_job.yml             # Databricks Jobs (daily fetch + file-arrival pipeline)
-├── databricks.yml                          # Databricks Asset Bundle config
-│
-└── src/                                    # Source code (not part of Databricks pipeline)
-    └── ingestion/                          # Local ingestion scripts (gitignored)
-        ├── fetch_usgs_data.py              # Local data fetcher (not used in Databricks)
-        └── requirements.txt                # Python dependencies
-```
-
-**Note:** The full load file `usgs_earthquake_full_load_2019_2024.json` (~200 MB) is excluded from git and uploaded directly to Databricks DBFS.
-
----
-
-## 🔧 Technical Implementation Details
-
-### **1. Strict Schema Enforcement**
-
-**Requirement:** No `inferSchema=True` anywhere in the pipeline
-
-**Implementation:**
-```python
-# config/schemas.py defines all schemas explicitly
-
-# Bronze: Read GeoJSON with defined envelope schema
-ENVELOPE_SCHEMA = StructType([
-    StructField("type", StringType(), True),
-    StructField("metadata", StructType([...]), True),
-    StructField("features", ArrayType(StringType()), True),  # Raw JSON strings
-])
-
-raw_df = spark.read.schema(ENVELOPE_SCHEMA).json(source_path)
-
-# Silver: Parse individual features with defined schema
-FEATURE_SCHEMA = StructType([
-    StructField("id", StringType(), True),
-    StructField("properties", StructType([...])),
-    StructField("geometry", StructType([...])),
-])
-
-parsed = df.withColumn("parsed", F.from_json("raw_json", FEATURE_SCHEMA))
-```
-
----
-
-### **2. Idempotency Implementation**
-
-**Bronze Layer:**
-```python
-# Hash-based change detection
-bronze_df = bronze_df.withColumn("record_hash", F.md5("raw_json"))
-
-# Compare with existing current records
-existing_df = spark.table("bronze_seismic_events").filter("is_current = TRUE")
-changed = bronze_df.join(existing_df, 
-    (bronze_df.event_id == existing_df.event_id) & 
-    (bronze_df.record_hash != existing_df.record_hash),
-    "left_anti")
-
-# Only events with different hash proceed to MERGE
-# Unchanged events → 0 rows written
-```
-
-**Silver Layer:**
-```python
-# MERGE with timestamp-based guard
-delta_table.merge(source, "target.event_id = source.event_id")
-  .whenMatchedUpdate(
-    condition="source.event_updated_time > target.event_updated_time",
-    set={...}  # Only update if source is newer
-  )
-  .whenNotMatchedInsert(values={...})
-  .execute()
-
-# Re-running same batch → 0 rows updated (timestamps unchanged)
-```
-
----
-
-### **3. SCD Type 2 Pattern (Bronze)**
-
-**Single MERGE Implementation:**
-```python
-# For changed events, create two copies in source:
-# Copy A: merge_key = event_id → matches current row → expires it
-# Copy B: merge_key = NULL → never matches → inserts new version
-
-expire = changed.filter("had_current").withColumn("merge_key", F.col("event_id"))
-insert = changed.withColumn("merge_key", F.lit(None).cast("string"))
-src = expire.unionByName(insert)
-
-DeltaTable.forName(spark, "bronze_seismic_events")
-  .merge(src, "t.event_id = s.merge_key AND t.is_current = TRUE")
-  .whenMatchedUpdate(set={"is_current": "false", "valid_to": "s.valid_from"})
-  .whenNotMatchedInsert(condition="s.merge_key IS NULL", values={...})
-  .execute()
-```
-
-**Result:** All versions preserved, single load_timestamp per batch, full audit trail.
-
----
-
-### **4. Schema Drift Handling**
-
-```python
-# Expected top-level keys defined in schemas.py
-EXPECTED_TOP_KEYS = ["type", "id", "properties", "geometry"]
-
-# Per-record drift detection
-parsed = parsed.withColumn(
-    "_unexpected_keys",
-    F.array_except(F.json_object_keys("raw_json"), expected_keys_lit)
-).withColumn(
-    "_has_schema_drift",
-    F.size("_unexpected_keys") > 0
-)
-
-# Log drift to error_log
-for key in unexpected_keys:
-    log_error(error_type="SCHEMA_DRIFT", 
-              message=f"Unexpected key: {key}")
-
-# Quarantine records with schema drift
-drift_records.write.mode("append").saveAsTable("silver_seismic_events_quarantine")
-
-# Continue processing conforming records
-parsed = parsed.filter(~F.col("_has_schema_drift"))
-```
-
----
-
-### **5. Batch-Level Load Timestamp**
-
-**Decision:** All records in a batch share the same `load_timestamp`
-
-**Implementation:**
-```python
-def run_bronze(source_path, batch_id, ingestion_type):
-    start = utc_now()
-    load_ts = start  # Captured ONCE at pipeline start
-    
-    # All literals use the same load_ts
-    staged = good.select(
-        "event_id", "raw_json",
-        F.lit(batch_id).alias("batch_id"),
-        F.lit(load_ts).alias("valid_from"),      # Same for all rows
-        F.lit(load_ts).alias("created_timestamp"),
-        F.lit(load_ts.year).alias("year"),
-        F.lit(load_ts.month).alias("month"),
-    )
-    
-    # Guarantees identical timestamp across entire batch
-```
-
-**Benefit:** Atomic batch semantics, accurate point-in-time queries.
-
----
-
-### **6. Comprehensive Audit Framework**
-
-**Three-tier logging:**
-
-1. **Execution Log** (batch-level)
-   - Every pipeline run logged (success or failure)
-   - Metrics: records processed, inserted, updated, errored
-   - Duration tracking
-
-2. **File Operation Log** (file-level)
-   - All CREATE/READ/UPDATE/DELETE operations
-   - Links operations to batch_id
-   - Tracks which files were processed when
-
-3. **Error Log** (record-level)
-   - Individual error details
-   - Stack traces for debugging
-   - Resolution tracking workflow
-
-**Example:**
-```python
-def write_exec_log(start, end, batch_id, status, metrics, error_msg):
-    row = (start, end, "01_Bronze_Ingestion", batch_id, "RAW_TO_BRONZE",
-           "FULL_LOAD", source_path, status,
-           metrics["total"], metrics["inserted"], metrics["updated"],
-           metrics["errored"], error_msg,
-           int((end - start).total_seconds()), utc_now())
-    spark.createDataFrame([row], EXECUTION_LOG_SCHEMA) \
-         .write.mode("append").saveAsTable("pipeline_execution_log")
-```
-
----
-
-## 🧪 Testing & Validation
-
-### **Idempotency Tests**
-
-**Test 1: Re-run same full load**
-```sql
--- First run: FULL_2026-10-09
--- records_inserted = 100,000
-
--- Second run: FULL_2026-10-09 with force=true
--- records_inserted = 0 (all hashes unchanged)
--- records_updated = 0 (no versions expired)
-
-SELECT batch_id, status, records_inserted, records_updated
-FROM pipeline_execution_log
-WHERE batch_id = 'FULL_2026-10-09'
-ORDER BY execution_id;
-```
-
-**Test 2: Incremental with no changes**
-```sql
--- Run incremental load with unchanged events
--- records_processed = 1,000
--- records_inserted = 0
--- records_updated = 0
-```
-
----
-
-### **SCD Type 2 Tests**
-
-**Test 3: Event magnitude update**
-```sql
--- Initial: us6000abc1, magnitude=4.5, is_current=TRUE
--- Update:  us6000abc1, magnitude=4.7, is_current=TRUE
-
--- Query: Show version history
+-- Track magnitude updates for a specific event
 SELECT event_id, 
-       GET_JSON_OBJECT(raw_json,'$.properties.mag') AS magnitude,
+       GET_JSON_OBJECT(raw_json, '$.properties.mag') AS magnitude,
+       GET_JSON_OBJECT(raw_json, '$.properties.status') AS status,
        is_current, valid_from, valid_to
 FROM bronze_seismic_events
 WHERE event_id = 'us6000abc1'
 ORDER BY valid_from;
-
--- Expected:
--- Row 1: mag=4.5, is_current=FALSE, valid_to=2026-10-10 00:00:00
--- Row 2: mag=4.7, is_current=TRUE,  valid_to=NULL
 ```
 
 ---
 
-### **Data Quality Tests**
+## Design Decisions
 
-**Test 4: Invalid records quarantined**
-```sql
--- Events with lat > 90 or lon > 180 or magnitude > 10
-SELECT COUNT(*) FROM silver_seismic_events_quarantine
-WHERE quarantine_reason = 'Validation bounds or required null check failed';
-
--- Expected: > 0 (some bad data exists in real-world datasets)
-```
-
-**Test 5: No duplicates in Silver**
-```sql
--- Must return 0 rows
-SELECT event_id, COUNT(*) 
-FROM silver_seismic_events
-GROUP BY event_id
-HAVING COUNT(*) > 1;
-```
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Schema enforcement** | Explicit PySpark StructTypes, zero `inferSchema` | Type safety, predictable behavior, production requirement |
+| **Bronze versioning** | SCD Type 2 | USGS updates magnitude/status days after event; need audit trail |
+| **Silver grain** | Latest version only (SCD Type 1) | Analytical queries want current truth; history available in Bronze |
+| **Gold shape** | Star (not snowflake) | Simple one-hop joins, fast BI queries, DAX-friendly |
+| **Surrogate keys** | Integer keys (`date_key=yyyyMMdd`, sequential for location) | Fast joins, small storage footprint, human-readable dates |
+| **Unknown members** | Key `-1` in every dimension | Prevent NULL foreign keys, never drop fact rows in Power BI |
+| **Location conformance** | `(country, state_province)` grain | Silver `region` too granular (almost unique); standardize US states |
+| **Physical layout** | Liquid Clustering (no Hive partitions) | ~15K events/year → partitions create small files; clustering gives file skipping without fragmentation |
+| **Incremental refresh** | Watermark on `updated_timestamp` | Process only changed Silver rows; re-run with no changes writes 0 rows |
+| **Energy calculation** | Gutenberg-Richter: `10^(1.5*M + 4.8)` | Enables "energy vs frequency" analysis (logarithmic scale → joules) |
 
 ---
 
-### **Schema Drift Tests**
+## Idempotency Guarantees
 
-**Test 6: Unexpected JSON key**
-```sql
--- If USGS adds new field "seismic_intensity_v2"
-SELECT error_type, error_message, COUNT(*) 
-FROM error_log
-WHERE error_type = 'SCHEMA_DRIFT'
-GROUP BY error_type, error_message;
+Every layer is fully idempotent — re-running the same batch with identical data writes **0 rows**:
 
--- Expected: Log entry for unexpected key
-```
+- **Bronze:** Hash-based change detection (`MD5(raw_json)`) — unchanged events skipped in MERGE
+- **Silver:** Timestamp guard (`event_updated_time` must be newer) — same timestamp = no update
+- **Gold:** Watermark-based read (`updated_timestamp > last_processed`) — no new Silver data = SKIPPED
+
+Execution guard: Successfully completed batches require `force=true` to re-run (failed batches can always re-run).
 
 ---
 
-## 📊 Phase 2 Achievements
+## Data Dictionary
 
-### **Requirements Met**
+Complete schema documentation with column definitions, data types, foreign key relationships, and ER diagrams:
 
-✅ **Infrastructure & Environment**
-- Databricks workspace configured
-- All code committed to GitHub
-- DBFS volumes configured for data storage
-
-✅ **Data Modeling & Schema Enforcement**
-- Complete data dictionaries for Bronze and Silver (documented above)
-- Strict schema enforcement using PySpark StructType (no inferSchema)
-- Explicit type casting for all fields (epoch ms → timestamp, strings → doubles)
-- Metadata integration: `load_timestamp`, `created_timestamp`, `updated_timestamp` on all records
-
-✅ **Pipeline Robustness & Idempotency**
-- Idempotent execution proven (re-running same data → 0 inserts/updates)
-- MERGE INTO patterns for both Bronze (SCD2) and Silver (SCD1)
-- Parameterized design: batch_id, run_date, force flags support backfills
-- Schema drift handling: detect → log → quarantine (pipeline never crashes)
-
-✅ **Audit & Execution Logging**
-- Three dedicated logging tables: `pipeline_execution_log`, `file_operation_log`, `error_log`
-- Every run logged with: layer, source, start/end times, status, row counts
-- Both full and incremental loads fully audited
+- **Gold Layer:** [`docs/Gold_Data_Dictionary.md`](docs/Gold_Data_Dictionary.md)
 
 ---
 
-### **Key Design Decisions**
+## Academic Context
 
-1. **Bronze Schema Approach:** Explicit `ENVELOPE_SCHEMA` with raw_json as STRING (preserves all fields)
-2. **Silver Schema Drift:** Dynamic column addition disabled, drift logged and quarantined
-3. **Type Casting Errors:** Failed records quarantined to `silver_seismic_events_quarantine`
-4. **Batch ID Format:** `{PREFIX}_{YYYY-MM-DD}` (e.g., FULL_2026-10-09)
-5. **Load Timestamp:** Single timestamp captured at pipeline start, used for entire batch
-6. **Idempotency Strategy:** Check execution log + hash-based change detection
-7. **Deleted Events:** Soft delete with `is_active = FALSE` flag
+This project was developed in three phases for a university Data Engineering course:
 
----
+- **Phase 1:** Proposal — data source selection, architecture design, analytical questions
+- **Phase 2:** Bronze + Silver — Medallion architecture, SCD Type 2, idempotency, audit framework
+- **Phase 3:** Gold + BI — star schema design, Power BI dashboards, Spark optimization analysis, FinOps evaluation
 
-## 🎓 Course Compliance
-
-**DS-3001 Data Engineering - Phase 2 Rubric:**
-
-| Requirement | Status | Evidence |
-|-------------|--------|----------|
-| **Databricks workspace setup** | ✅ | All notebooks run in Databricks Community Edition |
-| **GitHub version control** | ✅ | All code committed with meaningful history |
-| **Bronze & Silver data models documented** | ✅ | Complete schemas with data types above |
-| **No inferSchema usage** | ✅ | All schemas explicitly defined in `config/schemas.py` |
-| **Strict type casting** | ✅ | Epoch ms → timestamp, all fields explicitly cast |
-| **Metadata columns (load_timestamp)** | ✅ | All tables include load_timestamp, created_timestamp |
-| **Idempotent execution** | ✅ | Re-runs produce 0 inserts/updates (hash-based) |
-| **MERGE INTO pattern** | ✅ | Both Bronze (SCD2) and Silver (SCD1) use MERGE |
-| **Parameterized backfills** | ✅ | batch_id, run_date, force parameters support reruns |
-| **Schema drift handling** | ✅ | Detection → logging → quarantine (no crashes) |
-| **Execution logging** | ✅ | pipeline_execution_log tracks all runs |
-| **Audit metrics** | ✅ | Layer, source, times, status, row counts logged |
-| **README with execution guide** | ✅ | This document provides complete instructions |
+The README presents the complete pipeline as a cohesive production system rather than three disconnected assignments.
 
 ---
 
-## 📚 References
+## License
 
-- [USGS FDSN Event Web Service API](https://earthquake.usgs.gov/fdsnws/event/1/)
-- [Databricks Delta Lake Documentation](https://docs.databricks.com/delta/index.html)
-- [PySpark SQL Functions Reference](https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/functions.html)
-- [Slowly Changing Dimensions (SCD Type 2)](https://en.wikipedia.org/wiki/Slowly_changing_dimension)
+Academic project — FAST-NUCES, DS-3001 Data Analysis and Visualization
 
----
-
-## 👨‍💻 Author
-
-**FAST-NUCES Student**  
-DS-3001 Data Engineering Project  
-Phase 2: Core Pipeline Engineering  
-Submission Date: October 10, 2026
-
----
-
-## 📄 License
-
-This project is part of an academic assignment for DS-3001 at FAST-NUCES.
+**Data Source:** USGS earthquake data is public domain
